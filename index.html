@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixel Scene</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #5BA8E8; }
+      canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+    </style>
+  </head>
+  <body>
+    <canvas id="dc"></canvas>
+    <script>
+    (function () {
+      const cv = document.getElementById("dc");
+      const c = cv.getContext("2d");
+      c.imageSmoothingEnabled = false;
+
+      function resize() {
+        cv.width  = window.innerWidth;
+        cv.height = window.innerHeight;
+        c.imageSmoothingEnabled = false;
+      }
+      resize();
+      window.addEventListener("resize", resize);
+
+      const SC = 6;
+
+      // ── Palettes ───────────────────────────────────────────────────────────────
+      const DP = { ".": null, B: "#6B3010", O: "#D4884A", L: "#F0B06A", e: "#1A0800", n: "#A05028" };
+      const FP = {
+        ".": null, I: "#6B3010", F: "#A8B8C8", W: "#D0E8FF", S: "#6878A0",
+        H: "#8890A8", M: "#F0F0F0", B: "#4070D0", g: "#40A030", o: "#E07828",
+        C: "#E8C840", A: "#C03030", E: "#F0ECD8", D: "#8898B0", P: "#6878A0",
+      };
+      const CP = { ".": null, I: "#6B3010", K: "#909090", L: "#C4C4C4", n: "#C06060", "-": "#1A0800" };
+      const MP = { ".": null, J: "#1A2E08", G: "#3A5E1A", g: "#517030", V: "#C89008", W: "#F0DC40" };
+      const AP = {
+        ".": null, X: "#1A1008", H: "#403C38", h: "#5C5550", b: "#7A4828",
+        S: "#F0C898", s: "#C89860", E: "#2A7080", T: "#C89840", N: "#7A4020",
+        L: "#90C8D8", D: "#282018", P: "#1A1210",
+      };
+
+      // ── Mr. Bean palette (matching reference image) ────────────────────────────
+      // Black hair, peach skin, brown jacket, white shirt, red tie, dark check trousers
+      const BP = {
+        ".": null,
+        X: "#080808",   // black outline / hair
+        K: "#181818",   // near-black hair
+        S: "#F0C890",   // skin / peach face
+        s: "#D4A870",   // shadow skin
+        e: "#080808",   // eyes (black pixel)
+        G: "#E0E0E0",   // glasses frame (white/light)
+        W: "#F8F8F8",   // white shirt
+        R: "#CC1010",   // red tie
+        r: "#991010",   // tie shadow
+        J: "#6B3A18",   // brown jacket mid
+        j: "#4A2810",   // brown jacket dark
+        L: "#8C5028",   // brown jacket light
+        T: "#282828",   // dark trouser base
+        t: "#383030",   // trouser lighter (check)
+        C: "#585050",   // check pattern lighter
+        B: "#1A1008",   // shoe black
+        b: "#302010",   // shoe sole
+        N: "#C8A880",   // teddy body
+        n: "#A88060",   // teddy shadow
+        u: "#181008",   // teddy outline
+        H: "#E8E0D0",   // shirt collar highlight
+      };
+
+      // ── Mr. Bean sprite — 16×22 (wider to accommodate Teddy arm) ─────────────
+      // Based on the reference: black hair, peach face with glasses,
+      // brown jacket open, white shirt, red tie, dark check trousers, Teddy held up right
+      // Reading left→right, row by row
+      // Cols 0-15, rows 0-21
+
+      // Idle pose (arms slightly out, Teddy in right hand)
+      const BNI = [
+        //0123456789012345
+        "....XKKKKKKX....",  // 0  hair top
+        "...XKKKKKKKKKX..",  // 1  hair
+        "..XKKsSSSSSsKKX.",  // 2  hair + forehead
+        "..XKSSSSSSSSsKX.",  // 3  face
+        "..XSGeSeSeGSsX..",  // 4  glasses + eyes
+        "..XSSSSSSSSsX...",  // 5  cheeks / nose area
+        "..XSSSsSSSsX....",  // 6  mouth row
+        "..XHWWRRrWWHX...",  // 7  collar + red tie
+        ".XJWWWRrRWWWJX..",  // 8  shirt + tie upper
+        ".XJJWWRrRWWJJX..",  // 9
+        "XJjJJWRrRWJJjJX.",  // 10 jacket body + tie
+        "XJjJJJRrRJJJjJX.",  // 11
+        "XJjJJJRrRJJJjJX.",  // 12
+        "XJjJJJJJJJJJjJX.",  // 13 jacket lower
+        ".XJjJJJJJJJJjJX.",  // 14 jacket tail
+        "..XTtCtCTtCtCX..",  // 15 check trousers top
+        "..XTtCTtCTtCTX..",  // 16
+        "..XTTtTTTtTTTX..",  // 17
+        "..XTTTTTTTTTtX..",  // 18
+        "..XBBtX..XtBBX..",  // 19 legs split
+        "..XBBbX..XbBBX..",  // 20 shoes
+        "..XBbbX..XbbBX..",  // 21 shoe toe
+      ];
+
+      // Surprised pose — eyebrows up, mouth open "O"
+      const BNS = [
+        "....XKKKKKKX....",
+        "...XKKKKKKKKKX..",
+        "..XKKsSSSSSsKKX.",
+        "..XKSSSSSSSSsKX.",
+        "..XSeSeSeGGSsX..",  // brows raised (extra skin row above eyes implied by shift)
+        "..XSGeSeSeGSsX..",
+        "..XSSSsSSsSsX...",
+        "..XHWSsRRrWWHX..",  // mouth open = "s" pixel = dark oval
+        ".XJWWWRrRWWWJX..",
+        ".XJJWWRrRWWJJX..",
+        "XJjJJWRrRWJJjJX.",
+        "XJjJJJRrRJJJjJX.",
+        "XJjJJJRrRJJJjJX.",
+        "XJjJJJJJJJJJjJX.",
+        ".XJjJJJJJJJJjJX.",
+        "..XTtCtCTtCtCX..",
+        "..XTtCTtCTtCTX..",
+        "..XTTtTTTtTTTX..",
+        "..XTTTTTTTTTtX..",
+        "..XBBtX..XtBBX..",
+        "..XBBbX..XbBBX..",
+        "..XBbbX..XbbBX..",
+      ];
+
+      // Waving pose — right arm raised, Teddy held high (right side has extra cols)
+      // We'll draw Teddy separately as an overlay rather than bake into sprite
+      // for the wave, the right jacket arm goes up
+      const BNW = [
+        "....XKKKKKKX....",
+        "...XKKKKKKKKKX..",
+        "..XKKsSSSSSsKKX.",
+        "..XKSSSSSSSSsKX.",
+        "..XSGeSeSeGSsX..",
+        "..XSSSSSSSSsX...",
+        "..XSSSsSSSsX....",
+        "..XHWWRRrWWHX...",
+        ".XJWWWRrRWWWJjX.",  // right arm starts going up
+        ".XJJWWRrRWWJjjX.",
+        "XJjJJWRrRWJjjJX.",  // arm raised on right
+        "XJjJJJRrRJjJjJX.",
+        "XJjJJJRrRJJJjJX.",
+        "XJjJJJJJJJJJjJX.",
+        ".XJjJJJJJJJJjJX.",
+        "..XTtCtCTtCtCX..",
+        "..XTtCTtCTtCTX..",
+        "..XTTtTTTtTTTX..",
+        "..XTTTTTTTTTtX..",
+        "..XBBtX..XtBBX..",
+        "..XBBbX..XbBBX..",
+        "..XBbbX..XbbBX..",
+      ];
+
+      // Teddy bear — small 5×7 sprite drawn separately near Bean's raised hand
+      const TEDDY = [
+        ".uNu.",
+        "uNNNu",
+        "uNnNu",
+        ".uNu.",
+        ".uNu.",
+        "uNNNu",
+        ".uuu.",
+      ];
+      const TEDDY_PAL = { ".": null, u: "#1A1008", N: "#C8A880", n: "#A88060" };
+
+      // ── Dog sprites (18×13) ───────────────────────────────────────────────────
+      const DBODY = [
+        "BBBBBBBBBBBBBBBBB.",
+        "BOeOOOOOOOOOOOOOB.",
+        "BnOOOOOOOOOOOOOOB.",
+        ".BOOOOOOOOOOOOOOB.",
+        ".BOOOOOOOOOOOOOOB.",
+        ".BBBBBBBBBBBBBBB..",
+      ];
+      const mkD = (t0, t1, t2, l, p) => [t0, t1, t2, ...DBODY, l, l, l, p];
+      const IDLE_A = mkD(".BB.BB.......BB...", ".BLBBBLB......BB..", ".BBBBBBB......BB..", "..BOB.......BOB...", "..BBB.......BBB...");
+      const IDLE_B = mkD(".BB.BB..........BB", ".BLBBBLB........BB", ".BBBBBBB........BB", "..BOB.......BOB...", "..BBB.......BBB...");
+      const WALK_A = mkD(".BB.BB.......BB...", ".BLBBBLB......BB..", ".BBBBBBB......BB..", "...BOB.....BOB....", "...BBB.....BBB....");
+      const WALK_B = mkD(".BB.BB..........BB", ".BLBBBLB........BB", ".BBBBBBB........BB", ".BOB.........BOB..", ".BBB.........BBB..");
+
+      // ── Master Chief (14×20) ──────────────────────────────────────────────────
+      const MCI = [
+        "..JGGGGGGGGJ..",
+        ".JGGGGGGGGGGJ.",
+        "JGVVVVVVVVVVGJ",
+        "JGVVVWWVVVVVGJ",
+        "JGGGGGGGGGGGGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGgGGGGGgJGJ",
+        "JGJGGGGGGGGjGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        ".JGGGGGGGGGGJ.",
+        ".JGGGJ..JGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        "JGGGjJ..JjGGGJ",
+        "JGGGGj..jGGGGJ",
+      ];
+      const MCP = [
+        "..JGGGGGGGGJ..",
+        ".JGGGGGGGGGGJ.",
+        "JGVVVVVVVVVVGJ",
+        "JGVVVWWVVVVVGJ",
+        "JGGGGGGGGGGGGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGgGGGGGgJGJ",
+        "JGJGGGGGGGGjGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGg",
+        "JGJGGGGGGGGJgg",
+        ".JGGGGGGGGGGJg",
+        ".JGGGj..JGGGJg",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        "JGGGjJ..JjGGGJ",
+        "JGGGGj..jGGGGJ",
+      ];
+
+      // ── Arthur Morgan (14×20) ─────────────────────────────────────────────────
+      const AMI = [
+        "...XHHHHhHX...",
+        "..XHhHHHhHHX..",
+        "..XHHHHHHhHX..",
+        "XhhbbbbbbbhHhX",
+        "XHHhHHHHHHhHHX",
+        "..XsSSSSSSsX..",
+        "..XSEEssSEEX..",
+        "..XSSssssssX..",
+        "..XXssXXXssX..",
+        "...XsNNNNNsX..",
+        "..XDNTTTTNDX..",
+        "..XDTTTLLTDX..",
+        "..XDTTTTTTDX..",
+        "..XDDDDDDDDX..",
+        "..XDDDDDDDDX..",
+        "...XDDX..XDDX.",
+        "...XDDX..XDDX.",
+        "...XPPX..XPPX.",
+        "..XPPPX..XPPPX",
+        "..XPPPX..XPPPX",
+      ];
+
+      // ── Fridge / door / cat sprites ───────────────────────────────────────────
+      const FRIDGE = [
+        "IIIIIIIIIIIIII",
+        "IFFFFFFFFFFFFI",
+        "IFWWWWWWWWWWFI",
+        "IFWWWWWWWWWWFI",
+        "IFWWWWWWWWWWFI",
+        "IIHHHHHHHHHHII",
+        "IIIIIIIIIIIIII",
+        "IWWWWWWWWWWWWI",
+        "IWMMWWWWWBBWWI",
+        "IWMMWWWWWBBWWI",
+        "ISSSSSSSSSSSSI",
+        "IWWggWWWooWWWI",
+        "IWWggWWWooWWWI",
+        "ISSSSSSSSSSSSI",
+        "IWCCCWWWWAAWWI",
+        "IWCCCWWWWAAWWI",
+        "ISSSSSSSSSSSSI",
+        "IWWWWWWWWWWWWI",
+        "IWEEWWWWWWWWWI",
+        "IWEEWWWWWWWWWI",
+        "IIIIIIIIIIIIII",
+        "IFFFFFFFFFFFFI",
+      ];
+      const DOOR = [
+        "IIIIII",
+        "IDDDDI",
+        "IDPPDI",
+        "IDPPDI",
+        "IDPPDI",
+        "IDDDDI",
+        "ISSSSI",
+        "IDBBDI",
+        "IDBBDI",
+        "IDBBDI",
+        "IDDDDI",
+        "ISSSSI",
+        "IDDDDI",
+        "IIIIII",
+      ];
+      const CAT = [
+        ".II.........",
+        "InnII.......",
+        "IIIIIIIIIII.",
+        "ILL--KKKKKI.",
+        "ILnLKKKKKKI.",
+        "IIIIIIIIIII.",
+      ];
+
+      // ── Renderer ───────────────────────────────────────────────────────────────
+      function spr(pal, sp, x, y, flip, scale) {
+        const s = scale || SC, cols = sp[0].length;
+        c.save();
+        if (flip) {
+          c.translate(x + cols * s, y);
+          c.scale(-1, 1);
+          c.translate(-x, -y);
+        }
+        for (let r = 0; r < sp.length; r++)
+          for (let cc = 0; cc < sp[r].length; cc++) {
+            const col = pal[sp[r][cc]];
+            if (!col) continue;
+            c.fillStyle = col;
+            c.fillRect(x + cc * s, y + r * s, s, s);
+          }
+        c.restore();
+      }
+      function shad(cx, y, rx, sx = 1) {
+        c.save();
+        c.translate(cx, y); c.scale(sx, 1);
+        c.globalAlpha = 0.1 * sx; c.fillStyle = "#333";
+        c.beginPath(); c.ellipse(0, 0, rx, 6, 0, 0, Math.PI * 2); c.fill();
+        c.restore();
+      }
+      function woof(cx, top, w) {
+        c.save(); c.globalAlpha = w.a;
+        const bx = cx - 20, by = top - w.fy - 20, bw = 76, bh = 32;
+        c.fillStyle = "#fff"; c.strokeStyle = "#6B3010"; c.lineWidth = 3;
+        c.beginPath();
+        c.moveTo(bx + 8, by); c.lineTo(bx + bw - 8, by);
+        c.arcTo(bx + bw, by, bx + bw, by + 8, 8);
+        c.lineTo(bx + bw, by + bh - 8);
+        c.arcTo(bx + bw, by + bh, bx + bw - 8, by + bh, 8);
+        c.lineTo(bx + 20, by + bh); c.lineTo(bx + 10, by + bh + 12);
+        c.lineTo(bx + 8, by + bh);
+        c.arcTo(bx, by + bh, bx, by + bh - 8, 8);
+        c.lineTo(bx, by + 8); c.arcTo(bx, by, bx + 8, by, 8);
+        c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = "#6B3010";
+        c.font = 'bold 13px "Courier New",monospace';
+        c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText("WOOF!", bx + bw / 2, by + bh / 2 - 1);
+        c.restore();
+      }
+      function heart(cx, y, alpha, S) {
+        const sh = [
+          [1,0],[2,0],[4,0],[5,0],
+          [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
+          [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
+          [1,3],[2,3],[3,3],[4,3],[5,3],
+          [2,4],[3,4],[4,4],[3,5],
+        ];
+        c.save(); c.globalAlpha = alpha; c.fillStyle = "#FF3A3A";
+        const ox = cx - 3 * S;
+        for (const [px, py] of sh) c.fillRect(ox + px * S, y + py * S, S, S);
+        c.restore();
+      }
+      function zzz(cx, ty, t) {
+        const zs = [
+          { dx: 2, dy: 0, ph: 0, sz: 8 },
+          { dx: 11, dy: -9, ph: 0.33, sz: 10 },
+          { dx: 22, dy: -19, ph: 0.66, sz: 12 },
+        ];
+        for (const z of zs) {
+          const p = (t * 0.0007 + z.ph) % 1, a = Math.max(0, Math.sin(p * Math.PI));
+          c.save(); c.globalAlpha = a * 0.88; c.fillStyle = "#6B3010";
+          c.font = `bold ${z.sz}px "Courier New",monospace`;
+          c.textAlign = "left";
+          c.fillText("z", cx + z.dx, ty + z.dy - p * 16);
+          c.restore();
+        }
+      }
+      const PARTS = Array.from({ length: 14 }, () => ({
+        ox: Math.random() * 64 + 4, oy: Math.random() * 80 + 30,
+        spd: Math.random() * 0.24 + 0.12, ph: Math.random() * Math.PI * 2,
+        sz: Math.random() < 0.5 ? 4 : 6, al: Math.random() * 0.28 + 0.14,
+      }));
+      function pts(fx, fy, dt) {
+        for (const p of PARTS) {
+          p.oy -= (p.spd * dt) / 16; p.ph += dt * 0.003;
+          if (p.oy < -12) p.oy = Math.random() * 55 + 80;
+          c.save(); c.globalAlpha = p.al; c.fillStyle = "#A0D0FF";
+          c.fillRect(Math.round(fx + p.ox + Math.sin(p.ph) * 3), Math.round(fy + p.oy), p.sz, p.sz);
+          c.restore();
+        }
+      }
+
+      // ── Sun ───────────────────────────────────────────────────────────────────
+      function sun(cx, cy, now) {
+        const SP = 5, r_in = 6, r_out = 12, N = 8,
+          rot = now * 0.00025, pulse = 1 + 0.05 * Math.sin(now * 0.0018);
+        for (let py = -(r_out + 2); py <= r_out + 2; py++)
+          for (let px = -(r_out + 2); px <= r_out + 2; px++) {
+            const d = Math.sqrt(px * px + py * py) / pulse,
+              ang = Math.atan2(py, px) + rot,
+              spk = (Math.cos(N * ang) + 1) * 0.5,
+              rsp = r_in + (r_out - r_in) * spk;
+            let col = null;
+            if (d < r_in - 0.5) col = "#F07800";
+            else if (d < r_in + 0.5) col = "#F5A000";
+            else if (d < rsp - 0.5) col = "#F5C400";
+            else if (d < rsp + 1.2) col = "#1A1000";
+            if (col) {
+              c.fillStyle = col;
+              c.fillRect(Math.round(cx + px * SP) - (SP >> 1), Math.round(cy + py * SP) - (SP >> 1), SP, SP);
+            }
+          }
+      }
+
+      // ── Mr. Bean speech bubble ─────────────────────────────────────────────────
+      function beanBubble(cx, top, txt, alpha) {
+        if (alpha <= 0) return;
+        c.save(); c.globalAlpha = alpha;
+        const bw = txt.length * 11 + 20, bh = 28;
+        const bx = cx - bw / 2, by = top - bh - 14;
+        c.fillStyle = "#fff"; c.strokeStyle = "#1A1008"; c.lineWidth = 2.5;
+        c.beginPath();
+        c.moveTo(bx + 8, by); c.lineTo(bx + bw - 8, by);
+        c.arcTo(bx + bw, by, bx + bw, by + 8, 8);
+        c.lineTo(bx + bw, by + bh - 8);
+        c.arcTo(bx + bw, by + bh, bx + bw - 8, by + bh, 8);
+        c.lineTo(bx + bw / 2 + 6, by + bh);
+        c.lineTo(bx + bw / 2, by + bh + 10);
+        c.lineTo(bx + bw / 2 - 6, by + bh);
+        c.arcTo(bx, by + bh, bx, by + bh - 8, 8);
+        c.lineTo(bx, by + 8); c.arcTo(bx, by, bx + 8, by, 8);
+        c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = "#1A1008";
+        c.font = 'bold 14px "Courier New",monospace';
+        c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText(txt, cx, by + bh / 2);
+        c.restore();
+      }
+
+      // ── Layout — all derived from canvas size at draw time ──────────────────────
+      const DOG_H = 13 * SC, DOG_W = 18 * SC;
+      const CW = 14 * SC, CH = 20 * SC;
+      const FRG_H = 22 * SC, FRG_W = 14 * SC;
+      const BN_SW = 16, BN_SH = 22;
+      const BN_W = BN_SW * SC, BN_H = BN_SH * SC;
+      const CatW = 12 * SC, CatH = 6 * SC;
+
+      // These are computed fresh each frame from cv.height / cv.width
+      function getLayout() {
+        const FLOOR = Math.round(cv.height * 0.835);
+        const W = cv.width;
+        const HOME_X  = 40;
+        const MC_X    = Math.round(W * 0.25);
+        const MC_Y    = FLOOR - CH;
+        const PET_MC  = MC_X - DOG_W;
+        const AM_X    = Math.round(W * 0.51);
+        const AM_Y    = FLOOR - CH;
+        const PET_AM  = AM_X - DOG_W;
+        const BN_X    = Math.round(W * 0.68);
+        const BN_Y    = FLOOR - BN_H;
+        const FRG_L   = Math.round(W * 0.81);
+        const FRG_T   = FLOOR - FRG_H;
+        const DOOR_L  = FRG_L - 6 * SC;
+        const DOOR_T  = FRG_T + 7 * SC;
+        const NEAR_X  = DOOR_L - DOG_W - 8;
+        const CAT_X   = FRG_L + Math.floor((FRG_W - CatW) / 2);
+        const CAT_Y   = FRG_T - CatH;
+        const SUN_X   = Math.round(W * 0.935);
+        const SUN_Y   = 58;
+        return { FLOOR, HOME_X, MC_X, MC_Y, PET_MC, AM_X, AM_Y, PET_AM,
+                 BN_X, BN_Y, FRG_L, FRG_T, DOOR_L, DOOR_T, NEAR_X,
+                 CAT_X, CAT_Y, SUN_X, SUN_Y };
+      }
+
+      // Teddy scale
+      const TS = 5; // each teddy pixel = 5 canvas px
+
+      // ── Bean animation state ───────────────────────────────────────────────────
+      let beanPhase = 0, beanPhaseT = 0;
+      const BEAN_PHASE_DUR = [3200, 1100, 2200];
+      let beanBubbleAlpha = 0, beanBubbleTxt = "...";
+      let beanWaveArm = 0, beanWaveFT = 0;
+
+      // ── Bird sprite (9×6) ────────────────────────────────────────────────────
+      const BIRD_PAL = {
+        ".": null,
+        K: "#282828", G: "#888880", g: "#A8A898", W: "#F0F0E8",
+        R: "#CC4422", e: "#080808", B: "#6868A8", b: "#484888",
+      };
+      const BIRD_A = [
+        "..KGGgK..",
+        ".KGGeGGK.",
+        "KGGGWGGgK",
+        "KBbBGWBbK",
+        ".KBBBBBBK",
+        "..K.RR.K.",
+      ];
+      const BIRD_B = [
+        "KBbBGBbBK",
+        ".KGGeGGK.",
+        ".KGGWGgK.",
+        "..KGWGGK.",
+        "..KBBBBK.",
+        "...KRR.K.",
+      ];
+
+      // ── Poo splats and drips ──────────────────────────────────────────────────
+      const splats = [];
+      const pooDrips = [];
+
+      function spawnPoo(x, y) { pooDrips.push({ x, y, vy: 0 }); }
+
+      function drawSplat(sx, sy) {
+        const pixels = [[0,-1],[1,-1],[-1,0],[0,0],[1,0],[2,0],[-1,1],[0,1],[1,1],[0,2]];
+        const PS = 5;
+        c.fillStyle = "#F0F0E0";
+        for (const [px, py] of pixels) c.fillRect(sx + px*PS, sy + py*PS, PS, PS);
+        c.fillStyle = "#C8C8A8";
+        c.fillRect(sx, sy, PS, PS);
+        c.fillRect(sx+PS, sy-PS, PS, PS);
+      }
+
+      // ── Bird state ────────────────────────────────────────────────────────────
+      const BIRD_FLY = 30;
+      let birdX = -60, birdY = BIRD_FLY, birdDir = 1;
+      let birdFr = 0, birdFT = 0;
+      let birdTgtIdx = 0, birdState = "cruise";
+      let birdSwoopTgt = null, birdPooed = false;
+
+      function getBirdTargets() {
+        const { FLOOR, MC_X, AM_X, BN_X, CAT_X, CAT_Y, HOME_X } = getLayout();
+        return [
+          { x: MC_X  + CW/2,     y: FLOOR - CH    },
+          { x: AM_X  + CW/2,     y: FLOOR - CH    },
+          { x: BN_X  + BN_W/2,   y: FLOOR - BN_H  },
+          { x: CAT_X + CatW/2,   y: CAT_Y         },
+          { x: HOME_X + DOG_W/2, y: FLOOR - DOG_H },
+        ];
+      }
+
+      function pickBirdTarget() {
+        let idx;
+        const targets = getBirdTargets();
+        do { idx = Math.floor(Math.random() * targets.length); }
+        while (idx === birdTgtIdx && targets.length > 1);
+        birdTgtIdx = idx;
+      }
+
+      function updateBird(dt) {
+        birdFT += dt;
+        if (birdFT > 130) { birdFr = (birdFr + 1) % 2; birdFT = 0; }
+        const spd = 90 * dt / 1000;
+
+        if (birdState === "cruise") {
+          birdX += birdDir * spd;
+          birdY = BIRD_FLY + Math.sin(birdX * 0.035) * 9;
+          const targets = getBirdTargets();
+          const tgt = targets[birdTgtIdx];
+          const dist = tgt.x - birdX;
+          if (Math.abs(dist) < 130 && Math.sign(dist) === birdDir) {
+            birdSwoopTgt = tgt; birdState = "swoop_in"; birdPooed = false;
+          }
+          if (birdX > cv.width + 60) { birdX = -60; birdDir =  1; pickBirdTarget(); }
+          if (birdX < -60)           { birdX = cv.width+60; birdDir = -1; pickBirdTarget(); }
+        } else if (birdState === "swoop_in") {
+          birdX += birdDir * spd * 0.7;
+          const targetY = birdSwoopTgt.y - 28;
+          birdY += (targetY - birdY) * 0.09;
+          if (!birdPooed && Math.abs(birdX - birdSwoopTgt.x) < 18) {
+            spawnPoo(birdX, birdY + 30); birdPooed = true;
+          }
+          if (birdPooed && Math.abs(birdX - birdSwoopTgt.x) > 45) {
+            birdState = "swoop_out"; pickBirdTarget();
+          }
+        } else if (birdState === "swoop_out") {
+          birdX += birdDir * spd;
+          birdY += (BIRD_FLY - birdY) * 0.07;
+          if (Math.abs(birdY - BIRD_FLY) < 4) { birdY = BIRD_FLY; birdState = "cruise"; }
+        }
+      }
+
+      function updatePooDrips(dt) {
+        const { FLOOR } = getLayout();
+        const targets = getBirdTargets();
+        for (let i = pooDrips.length - 1; i >= 0; i--) {
+          const p = pooDrips[i];
+          p.vy += 0.35 * dt / 16;
+          p.y  += p.vy * dt / 16;
+          c.fillStyle = "#F0F0E0";
+          c.fillRect(p.x - 3, p.y - 4, 7, 9);
+          c.fillStyle = "#C8C8A8";
+          c.fillRect(p.x - 2, p.y - 2, 4, 4);
+          let splatY = FLOOR - 8;
+          for (const tgt of targets) {
+            if (Math.abs(p.x - tgt.x) < 44 && p.y >= tgt.y + 8) {
+              splatY = tgt.y + 8; break;
+            }
+          }
+          if (p.y >= splatY) {
+            splats.push({ x: Math.round(p.x), y: Math.round(splatY) });
+            pooDrips.splice(i, 1);
+          }
+        }
+      }
+
+      // ── Caine — AI robot (Caine from TADC inspired, green rounded robot) ────────
+      // 12×18 sprite: big round green head, small body, stubby legs
+      const CAINE_PAL = {
+        ".": null,
+        G: "#44EE44",  // bright green
+        g: "#22CC22",  // mid green
+        d: "#119911",  // dark green shadow
+        K: "#080808",  // black outline
+        W: "#FFFFFF",  // white eyes
+        e: "#080808",  // pupils
+        S: "#88FF88",  // highlight
+        B: "#CCFFCC",  // belly/light
+        T: "#33AA33",  // body mid
+        Y: "#FFFF44",  // antenna tip glow
+        k: "#444444",  // dark body
+      };
+      // Normal face
+      const CAINE_A = [
+        "...KKKKKK...",   // 0
+        "..KGGGGGgK..",   // 1  head
+        ".KGSSGGGGgK.",   // 2
+        "KGSGGGGGGgdK",   // 3
+        "KGGWeGGWeGdK",   // 4  eyes
+        "KGGGGGGGGGdK",   // 5
+        "KGGGKKKGGGdK",   // 6  smile
+        "KGGGGGGGGGdK",   // 7
+        ".KGGGGGGGdK.",   // 8
+        "..KKgTTKK...",   // 9  neck
+        ".KkTTTTTkK.",    // 10 body
+        "KkTBBBBBTkK.",   // 11
+        "KkTBBBBBTkK.",   // 12
+        ".KkTTTTTkK.",    // 13
+        "..KKkkkKK...",   // 14
+        "..KkK.KkK...",   // 15 legs
+        "..KkK.KkK...",   // 16
+        "..KKK.KKK...",   // 17 feet
+      ];
+      // Wide grin / placing face
+      const CAINE_B = [
+        "...KKKKKK...",
+        "..KGGGGGgK..",
+        ".KGSSGGGGgK.",
+        "KGSGGGGGGgdK",
+        "KGGWeGGWeGdK",
+        "KGGGGGGGGGdK",
+        "KGKKKKKKKGdK",   // bigger grin row 1
+        "KGGGGGGGGGdK",
+        ".KGGGGGGGdK.",
+        "..KKgTTKK...",
+        ".KkTTTTTkK.",
+        "KkTBBBBBTkK.",
+        "KkTBBBBBTkK.",
+        ".KkTTTTTkK.",
+        "..KKkkkKK...",
+        "..KkK.KkK...",
+        "..KkK.KkK...",
+        "..KKK.KKK...",
+      ];
+
+      // Placed items: pixel doodles Caine stamps into the scene
+      const PLACED = [];
+
+      const ITEM_DEFS = [
+        { name: "pencil",
+          pal: { ".":null, K:"#080808", Y:"#F5D020", P:"#F0A080", T:"#C8A060", G:"#909090" },
+          sp:  [ "......K",
+                 ".....KYK",
+                 "....KYYYK",
+                 "...KYYYYK",
+                 "..KYYYYYK",
+                 ".KYYYYYYK",
+                 "KGGGGGGGK",
+                 ".KPPPPPK.",
+                 "..KKKKK.." ] },
+
+        { name: "paper",
+          pal: { ".":null, K:"#080808", W:"#F8F8F8", L:"#E0E0D8", B:"#8888CC" },
+          sp:  [ "KWWWWWWK",
+                 "KLLLLLLK",
+                 "KBWWWWWK",
+                 "KLLLLLLK",
+                 "KBWWWWWK",
+                 "KLLLLLLK",
+                 "KBWWWWWK",
+                 "KKKKKKKKK" ] },
+
+        { name: "cup",
+          pal: { ".":null, K:"#080808", R:"#CC3333", r:"#882222", W:"#F8F8F8", S:"#FFAAAA" },
+          sp:  [ ".KWWWWK.",
+                 "KRRRRRRRK",
+                 "KrRSRRRrK",
+                 "KrRRRRRrK",
+                 "KrRRRRRrK",
+                 ".KrRRRrK.",
+                 "..KrrrK.." ] },
+
+        { name: "spoon",
+          pal: { ".":null, K:"#080808", S:"#D8D8D8", s:"#A8A8A8", H:"#F0F0F0" },
+          sp:  [ "..KSK..",
+                 ".KHSsK.",
+                 ".KSSSsK",
+                 "..KSsK.",
+                 "...KK..",
+                 "...KSK.",
+                 "...KSK.",
+                 "...KSK.",
+                 "...KKK." ] },
+
+        { name: "hat",
+          pal: { ".":null, K:"#080808", T:"#1A1A1A", t:"#383838", W:"#F0F0F0", R:"#CC2222" },
+          sp:  [ "...KTTK...",
+                 "...KTTk...",
+                 "...KTTk...",
+                 "..KTTTtK..",
+                 ".KTTTTTtK.",
+                 "KTTTTTTTTK",
+                 "KWWWWWWWWK",
+                 "KTTTTTTTTK" ] },
+
+        { name: "sock",
+          pal: { ".":null, K:"#080808", B:"#4466CC", b:"#2244AA", W:"#F0F0F0", S:"#8899DD" },
+          sp:  [ "..KBBK..",
+                 ".KBBBbK.",
+                 ".KBSBbK.",
+                 ".KBBBbK.",
+                 ".KBBBbK.",
+                 ".KBBBbK.",
+                 "KBBBBBbK",
+                 "KBBBBBbK",
+                 ".KKKKKKK" ] },
+
+        { name: "shoe",
+          pal: { ".":null, K:"#080808", N:"#1A1008", n:"#302010", W:"#F8F8F8", G:"#888888" },
+          sp:  [ "....KNK.",
+                 "...KNNnK",
+                 "..KNNNnK",
+                 ".KNNNNnK",
+                 "KNNNNNnK",
+                 "KNNNNNnK",
+                 "KWWWWWWK",
+                 "KGGGGGGGK" ] },
+
+        { name: "ball",
+          pal: { ".":null, K:"#080808", R:"#DD2222", r:"#AA1111", W:"#FFFFFF", S:"#FF8888" },
+          sp:  [ "..KRRK..",
+                 ".KRSRrK.",
+                 "KRSSRRrK",
+                 "KRSRRRrK",
+                 "KRRRRRrK",
+                 ".KRrRrK.",
+                 "..KrrK.." ] },
+
+        { name: "box",
+          pal: { ".":null, K:"#080808", B:"#C8902A", b:"#A07020", T:"#E8B84A", L:"#F0D080" },
+          sp:  [ "KLLLLLLK",
+                 "KLTLTLlK",
+                 "KTTTTTTK",
+                 "KbBBBBbK",
+                 "KbBbBBbK",
+                 "KbBBBBbK",
+                 "KbBBBBbK",
+                 "KKKKKKKK" ] },
+
+        { name: "bag",
+          pal: { ".":null, K:"#080808", P:"#CC88CC", p:"#AA44AA", H:"#EEB8EE", S:"#884488" },
+          sp:  [ "..KSSK..",
+                 ".KSSSSSK",
+                 "KPPPPPPpK",
+                 "KPHPPPPpK",
+                 "KPPPPPPpK",
+                 "KPPPPPPpK",
+                 "KPPPPPPpK",
+                 ".KpppppK." ] },
+
+        { name: "cat",
+          pal: { ".":null, K:"#080808", O:"#E8A840", o:"#C07820", W:"#F8F8F8", e:"#44CC44", p:"#FFB8C8" },
+          sp:  [ "K...K...K",
+                 "KOK.KOK.",
+                 "KOOOOOOOK",
+                 "KOeWOeWOK",
+                 "KOOoOOOOK",
+                 "KOOpOOOOK",
+                 ".KOOOOOK.",
+                 ".KoooooK.",
+                 "KoK...KoK" ] },
+
+        { name: "dog",
+          pal: { ".":null, K:"#080808", T:"#C87830", t:"#A05820", W:"#F0F0F0", e:"#1A0800", p:"#FFB8C8" },
+          sp:  [ ".KTK.KTK.",
+                 ".KTTTTTK.",
+                 "KTTWTWTtK",
+                 "KTTeTeТtK",
+                 "KTTTpTTtK",
+                 ".KTTTTTk.",
+                 ".KtttttK.",
+                 "KtK...KtK" ] },
+
+        { name: "bird",
+          pal: { ".":null, K:"#080808", B:"#5588EE", b:"#3366CC", W:"#F8F8F8", Y:"#FFDD00", e:"#080808" },
+          sp:  [ "..KBK...",
+                 ".KBBbK..",
+                 "KBWebbK.",
+                 "KBWBBbYK",
+                 ".KBBbbK.",
+                 "..KBKYK.",
+                 "...KKK.." ] },
+
+        { name: "fish",
+          pal: { ".":null, K:"#080808", B:"#3399EE", b:"#1166BB", S:"#88CCFF", e:"#080808", Y:"#FFEE00" },
+          sp:  [ "KbK....K",
+                 "KbbbKSbK",
+                 "KbSSSebbK",
+                 "KbSSSbYbK",
+                 "KbbbKSbK",
+                 "KbK....K" ] },
+
+        { name: "cow",
+          pal: { ".":null, K:"#080808", W:"#F8F8F8", B:"#282828", P:"#FFB8C8", e:"#080808", H:"#C8A080" },
+          sp:  [ ".KHKHK..",
+                 "KWWWWWWK",
+                 "KWBeWBWK",
+                 "KWWWWWwK",
+                 "KWWPWWwK",
+                 ".KWWWWK.",
+                 "KWK.KWK.",
+                 "KWK.KWK." ] },
+
+        { name: "horse",
+          pal: { ".":null, K:"#080808", B:"#7A4820", b:"#5A3010", W:"#F8F8F8", M:"#3A2010", e:"#080808" },
+          sp:  [ "..KMK...",
+                 ".KBBbK..",
+                 "KBBBBbK.",
+                 "KBBeBBbK",
+                 ".KBBBbK.",
+                 "KBBBBBbK",
+                 "KbK.KbK.",
+                 "KbK.KbK." ] },
+
+        { name: "pig",
+          pal: { ".":null, K:"#080808", P:"#FFB8C8", p:"#EE8899", W:"#F8F8F8", e:"#080808", n:"#FF8899" },
+          sp:  [ "..KPPK..",
+                 ".KPPPpK.",
+                 "KPPePePpK",
+                 "KPPPnPPpK",
+                 "KPPPPPPpK",
+                 ".KPpPpPK.",
+                 ".KpK.KpK." ] },
+
+        { name: "duck",
+          pal: { ".":null, K:"#080808", Y:"#F5C438", y:"#C89010", W:"#F8F8F8", O:"#E07820", e:"#080808" },
+          sp:  [ "..KWK...",
+                 ".KWWwK..",
+                 "KYYWWwYK",
+                 "KYYeYYyK",
+                 "KYYYYYyK",
+                 ".KYYYyK.",
+                 "..KOOK.." ] },
+
+        { name: "bear",
+          pal: { ".":null, K:"#080808", B:"#8B5E3C", b:"#5A3820", T:"#C8A080", e:"#080808", n:"#CC6644", W:"#F8F0E8" },
+          sp:  [ "KbK.KbK.",
+                 "KBBBBBKB",
+                 "KBTBBTbK",
+                 "KBBeBeBbK",
+                 "KBBBnBBbK",
+                 "KBWBBBBbK",
+                 ".KBBBBbK.",
+                 "KBK.KBK." ] },
+
+        { name: "lion",
+          pal: { ".":null, K:"#080808", Y:"#E8B830", y:"#C08010", O:"#E87820", W:"#F8F0D0", e:"#080808", n:"#CC4422" },
+          sp:  [ ".KyYyYyK.",
+                 "KyYYYYYyK",
+                 "KyYWYWYyK",
+                 "KyYYeYeYyK",
+                 "KyYYYnYYyK",
+                 "KyYWYYYyK",
+                 ".KyYYYyK.",
+                 "..KyOyK..",
+                 ".KyK.KyK." ] },
+      ];
+
+      // Caine state machine
+      const CAINE_HOME_X = 60, CAINE_HOME_Y = 150;
+      let caineX = CAINE_HOME_X, caineY = CAINE_HOME_Y;
+      let caineVX = 0, caineVY = 0;
+      let caineState = "idle", caineT = 0;
+      let caineTarget = null;
+      let caineItemIdx = 0;
+      let caineFrame = 0, caineFT = 0;
+      let caineFlash = 0, caineGlow = 0;
+      let caineAntY = 0;
+
+      // Fully random placement — anywhere on the ground or mid-air
+      function randomDropZone() {
+        const { FLOOR } = getLayout();
+        const margin = 40;
+        const x = margin + Math.random() * (cv.width - margin * 2);
+        const y = Math.random() < 0.7
+          ? FLOOR - 20 - Math.random() * 40
+          : FLOOR - 80 - Math.random() * 160;
+        return { x, y };
+      }
+
+      function updateCaine(dt) {
+        caineT += dt;
+        caineFT += dt;
+        if (caineFT > 350) { caineFrame = (caineFrame+1)%2; caineFT = 0; }
+        caineFlash = Math.max(0, caineFlash - dt * 0.004);
+        caineGlow  = Math.max(0, caineGlow  - dt * 0.003);
+
+        if (caineState === "idle") {
+          caineX += (CAINE_HOME_X - caineX) * 0.03;
+          caineY += (CAINE_HOME_Y - caineY) * 0.03;
+          caineAntY = Math.sin(caineT * 0.004) * 5;
+          if (caineT > 4000) {
+            caineT = 0;
+            caineTarget = randomDropZone();
+            caineItemIdx = Math.floor(Math.random() * ITEM_DEFS.length);
+            caineState = "fly_to";
+          }
+        } else if (caineState === "fly_to") {
+          // Zoom toward target
+          const tx = caineTarget.x, ty = caineTarget.y - 60;
+          caineVX += (tx - caineX) * 0.08;
+          caineVY += (ty - caineY) * 0.08;
+          caineVX *= 0.78; caineVY *= 0.78;
+          caineX += caineVX * dt / 16;
+          caineY += caineVY * dt / 16;
+          caineAntY = Math.sin(caineT * 0.012) * 8; // faster wobble when flying
+          if (Math.abs(caineX - tx) < 12 && Math.abs(caineY - ty) < 12) {
+            caineState = "place";
+            caineT = 0;
+            caineFlash = 1.0;
+            caineGlow  = 1.0;
+            // Stamp the item
+            PLACED.push({
+              type: caineItemIdx,
+              x: caineTarget.x,
+              y: caineTarget.y,
+              age: 0,
+            });
+          }
+        } else if (caineState === "place") {
+          caineAntY = Math.sin(caineT * 0.02) * 3;
+          if (caineT > 700) {
+            caineState = "fly_back";
+            caineT = 0;
+            caineVX = 0; caineVY = 0;
+          }
+        } else if (caineState === "fly_back") {
+          const tx = CAINE_HOME_X, ty = CAINE_HOME_Y;
+          caineVX += (tx - caineX) * 0.06;
+          caineVY += (ty - caineY) * 0.06;
+          caineVX *= 0.80; caineVY *= 0.80;
+          caineX += caineVX * dt / 16;
+          caineY += caineVY * dt / 16;
+          if (Math.abs(caineX - tx) < 10 && Math.abs(caineY - ty) < 10) {
+            caineState = "idle";
+            caineT = 0;
+          }
+        }
+        // Age placed items
+        for (const p of PLACED) p.age += dt;
+      }
+
+      function drawCaine(now) {
+        const cs = 5; // sprite scale
+        const cx = Math.round(caineX), cy = Math.round(caineY);
+
+        // Glow ring when placing
+        if (caineGlow > 0) {
+          c.save();
+          c.globalAlpha = caineGlow * 0.5;
+          c.strokeStyle = "#88FF88";
+          c.lineWidth = 6;
+          c.beginPath();
+          c.arc(cx + 6*cs, cy + 4*cs, 38, 0, Math.PI*2);
+          c.stroke();
+          c.restore();
+        }
+
+        // Antenna (drawn above sprite)
+        const antX = cx + 6*cs - 2, antBaseY = cy - 4;
+        c.fillStyle = "#119911";
+        c.fillRect(antX, antBaseY + Math.round(caineAntY), 4, 14);
+        // Glowing tip
+        c.fillStyle = "#FFFF44";
+        c.fillRect(antX - 2, antBaseY - 6 + Math.round(caineAntY), 8, 8);
+        c.save();
+        c.globalAlpha = 0.5 + 0.5 * Math.sin(now * 0.006);
+        c.fillStyle = "#FFFFAA";
+        c.fillRect(antX - 4, antBaseY - 10 + Math.round(caineAntY), 12, 12);
+        c.restore();
+
+        // Sprite
+        spr(CAINE_PAL, caineFrame === 0 ? CAINE_A : CAINE_B, cx, cy, false, cs);
+
+        // Flash overlay when placing
+        if (caineFlash > 0) {
+          c.save();
+          c.globalAlpha = caineFlash * 0.35;
+          c.fillStyle = "#AAFFAA";
+          c.fillRect(cx, cy, 12*cs, 18*cs);
+          c.restore();
+        }
+
+        // "PLACING..." label when in place state
+        if (caineState === "place" || caineState === "fly_to") {
+          c.save();
+          c.globalAlpha = 0.85;
+          c.fillStyle = "#CCFFCC";
+          c.strokeStyle = "#119911";
+          c.lineWidth = 2;
+          c.font = 'bold 11px "Courier New",monospace';
+          c.textAlign = "center";
+          const lbl = caineState === "place"
+            ? `[ ${ITEM_DEFS[caineItemIdx].name.toUpperCase()} PLACED ]`
+            : "PLACING...";
+          c.strokeText(lbl, cx + 6*cs, cy - 18);
+          c.fillText(lbl, cx + 6*cs, cy - 18);
+          c.restore();
+        }
+      }
+
+      function drawPlaced() {
+        for (const p of PLACED) {
+          const def = ITEM_DEFS[p.type];
+          const alpha = Math.min(1, p.age / 300);
+          const sc = alpha < 1 ? 4 + (1 - alpha) * 5 : 7;
+          c.save();
+          c.globalAlpha = alpha;
+          const sw = def.sp[0].length * sc, sh = def.sp.length * sc;
+          spr(def.pal, def.sp, Math.round(p.x - sw / 2), Math.round(p.y - sh), false, sc);
+          c.restore();
+        }
+      }
+
+      // ── Cloud draw helper ─────────────────────────────────────────────────────
+      function drawCloud(cx, cy, scale, alpha) {
+        c.save(); c.globalAlpha = alpha; c.fillStyle = "#FFFFFF";
+        const b = scale;
+        [[0,0,5,3],[3,-2,6,3],[8,0,5,3],[-1,1,4,2],[8,1,4,2]].forEach(([dx,dy,w,h]) =>
+          c.fillRect(cx + dx*b, cy + dy*b, w*b, h*b));
+        c.restore();
+      }
+
+      // ── Scene state ────────────────────────────────────────────────────────────
+      let dogX = 40, state = "idle_home", stateT = 0, frame = 0, fT = 0;
+      let bobPh = 0, jumpY = 0, jumping = false, jumpT = 0, woofV = null, flip = true;
+      let mcPet = false, amPet = false, mcFr = 0, mcFT = 0, amFr = 0, amFT = 0;
+      let lastT = performance.now();
+
+      function loop(now) {
+        const dt = Math.min(now - lastT, 50);
+        lastT = now;
+        stateT += dt;
+
+        // Recompute layout each frame so it tracks canvas size
+        const { FLOOR, HOME_X, MC_X, MC_Y, PET_MC, AM_X, AM_Y, PET_AM,
+                BN_X, BN_Y, FRG_L, FRG_T, DOOR_L, DOOR_T, NEAR_X,
+                CAT_X, CAT_Y, SUN_X, SUN_Y } = getLayout();
+
+        // Dog state machine
+        switch (state) {
+          case "idle_home":
+            flip = true; mcPet = false; amPet = false;
+            if (stateT > 1000) { state = "walk_to_mc"; stateT = 0; frame = 0; }
+            break;
+          case "walk_to_mc":
+            flip = true; dogX += dt * 0.09;
+            if (dogX >= PET_MC) { dogX = PET_MC; state = "at_mc"; stateT = 0; frame = 0; mcPet = true; }
+            break;
+          case "at_mc":
+            flip = true; mcPet = true;
+            if (stateT > 1900) { state = "walk_to_am"; stateT = 0; frame = 0; mcPet = false; }
+            break;
+          case "walk_to_am":
+            flip = true; dogX += dt * 0.09;
+            if (dogX >= PET_AM) { dogX = PET_AM; state = "at_am"; stateT = 0; frame = 0; amPet = true; }
+            break;
+          case "at_am":
+            flip = true; amPet = true;
+            if (stateT > 1900) { state = "walk_to_fridge"; stateT = 0; frame = 0; amPet = false; }
+            break;
+          case "walk_to_fridge":
+            flip = true; dogX += dt * 0.09;
+            if (dogX >= NEAR_X) { dogX = NEAR_X; state = "at_fridge"; stateT = 0; frame = 0; jumping = true; jumpT = 0; woofV = { a: 1, fy: 0, t: 0 }; }
+            break;
+          case "at_fridge":
+            flip = true;
+            if (stateT > 1600) { state = "walk_home"; stateT = 0; frame = 0; }
+            break;
+          case "walk_home":
+            flip = false; dogX -= dt * 0.09;
+            if (dogX <= HOME_X) { dogX = HOME_X; state = "idle_home"; stateT = 0; frame = 0; }
+            break;
+        }
+        fT += dt;
+        const walking = state.startsWith("walk"), petting = state === "at_mc" || state === "at_am";
+        if (fT > (walking ? 160 : petting ? 110 : 460)) { frame = (frame + 1) % 2; fT = 0; }
+        mcFT += dt;
+        if (mcFT > (mcPet ? 240 : 700)) { mcFr = (mcFr + 1) % 2; mcFT = 0; }
+        amFT += dt;
+        if (amFT > (amPet ? 240 : 700)) { amFr = (amFr + 1) % 2; amFT = 0; }
+        bobPh += dt * 0.002;
+        const bob = walking ? Math.sin(bobPh * 6) * 2.2 : Math.sin(bobPh) * 1.3;
+        if (jumping) {
+          jumpT += dt;
+          const jt = jumpT / 380;
+          jumpY = jt <= 1 ? Math.sin(jt * Math.PI) * 20 : 0;
+          if (jt > 1) { jumping = false; jumpY = 0; }
+        }
+        if (woofV) {
+          woofV.t += dt; woofV.fy = woofV.t * 0.04;
+          woofV.a = Math.max(0, 1 - woofV.t / 1500);
+          if (woofV.a <= 0) woofV = null;
+        }
+
+        // Bean phase cycling
+        beanPhaseT += dt;
+        if (beanPhaseT >= BEAN_PHASE_DUR[beanPhase]) {
+          beanPhase = (beanPhase + 1) % 3;
+          beanPhaseT = 0;
+          if (beanPhase === 1) beanBubbleTxt = "!";
+          else if (beanPhase === 2) beanBubbleTxt = "Teddy!";
+          else beanBubbleTxt = "...";
+        }
+        if (beanPhase === 0) {
+          beanBubbleAlpha = 0.3 + 0.12 * Math.sin(now * 0.001);
+        } else {
+          const prog = beanPhaseT / BEAN_PHASE_DUR[beanPhase];
+          beanBubbleAlpha = prog < 0.15 ? prog / 0.15 : prog > 0.8 ? (1 - prog) / 0.2 : 1.0;
+        }
+        beanWaveFT += dt;
+        if (beanWaveFT > 260) { beanWaveArm = (beanWaveArm + 1) % 2; beanWaveFT = 0; }
+
+        // Bird + poo update
+        updateBird(dt);
+        // Caine update
+        updateCaine(dt);
+
+        // ── DRAW ──────────────────────────────────────────────────────────────
+
+        // Sky gradient
+        const skyGrad = c.createLinearGradient(0, 0, 0, FLOOR);
+        skyGrad.addColorStop(0,   "#5BA8E8");
+        skyGrad.addColorStop(0.6, "#A8D8F8");
+        skyGrad.addColorStop(1,   "#D0EEF8");
+        c.fillStyle = skyGrad;
+        c.fillRect(0, 0, cv.width, cv.height);
+
+        // Slowly drifting clouds
+        const cd = (now * 0.008) % cv.width;
+        drawCloud(((120 + cd) % (cv.width + 160)) - 80, 55, 7, 0.92);
+        drawCloud(((340 + cd * 0.6) % (cv.width + 160)) - 80, 38, 9, 0.85);
+        drawCloud(((600 + cd * 0.8) % (cv.width + 160)) - 80, 70, 6, 0.80);
+        drawCloud(((820 + cd * 0.5) % (cv.width + 160)) - 80, 45, 8, 0.88);
+
+        // Grass fills everything below the floor line
+        c.fillStyle = "#6DBF5A";
+        c.fillRect(0, FLOOR, cv.width, cv.height);
+        // Mid-tone stripe
+        c.fillStyle = "#58B048";
+        c.fillRect(0, FLOOR + 6, cv.width, 8);
+        // Darker edge line at very top of grass
+        c.fillStyle = "#4A9E38";
+        c.fillRect(0, FLOOR, cv.width, 6);
+
+        sun(SUN_X, SUN_Y, now);
+
+        // Fridge + cold air + cat
+        shad(FRG_L + FRG_W / 2, FLOOR + 5, FRG_W * 0.44);
+        spr(FP, DOOR, DOOR_L, DOOR_T, false);
+        spr(FP, FRIDGE, FRG_L, FRG_T, false);
+        pts(FRG_L + SC, FRG_T + 7 * SC, dt);
+        const cb = Math.round(Math.sin(now * 0.0006) * 1);
+        spr(CP, CAT, CAT_X, CAT_Y + cb, false);
+        zzz(CAT_X + 6, CAT_Y + cb, now);
+
+        // MC
+        shad(MC_X + CW / 2, FLOOR + 5, CW * 0.4);
+        const mcBob = mcPet ? Math.round(Math.sin(now * 0.006) * 2) : Math.round(Math.sin(now * 0.001) * 1);
+        spr(MP, mcPet && mcFr === 1 ? MCP : MCI, MC_X, MC_Y + mcBob, false);
+
+        // Arthur
+        shad(AM_X + CW / 2, FLOOR + 5, CW * 0.4);
+        const amBob = amPet ? Math.round(Math.sin(now * 0.006) * 2) : Math.round(Math.sin(now * 0.001) * 1);
+        spr(AP, AMI, AM_X, AM_Y + amBob, false);
+
+        // ── Mr. Bean ──────────────────────────────────────────────────────────
+        shad(BN_X + BN_W / 2, FLOOR + 5, BN_W * 0.38);
+        const beanBob = Math.round(Math.sin(now * 0.0011 + 0.8) * 1.5);
+        let beanSprite = BNI;
+        if (beanPhase === 1) beanSprite = BNS;
+        else if (beanPhase === 2) beanSprite = (beanWaveArm === 0) ? BNW : BNI;
+        spr(BP, beanSprite, BN_X, BN_Y + beanBob, false);
+
+        // Teddy — always drawn to Bean's upper-right (held in right hand)
+        // In idle/surprised: held low at side; in wave: held high
+        const teddyOffX = BN_W - TS;      // right edge of Bean
+        const teddyOffY = beanPhase === 2
+          ? -TS * 4                        // raised high when waving
+          : BN_H * 0.35;                  // mid-height at side otherwise
+        // slight bob on Teddy matching Bean, plus extra wave bounce
+        const teddyBounce = beanPhase === 2
+          ? Math.round(Math.sin(now * 0.008) * 4)
+          : 0;
+        spr(TEDDY_PAL, TEDDY, BN_X + teddyOffX, BN_Y + beanBob + teddyOffY + teddyBounce, false, TS);
+
+        // Bubble
+        beanBubble(BN_X + BN_W / 2, BN_Y + beanBob, beanBubbleTxt, beanBubbleAlpha);
+
+        // Dog (always front)
+        const dx = Math.round(dogX), dy = Math.round(FLOOR - DOG_H + bob - jumpY), dcx = dx + DOG_W / 2;
+        shad(dcx, FLOOR + 5, DOG_W * 0.38, Math.max(0.3, 1 - jumpY / 40));
+        spr(DP, walking ? (frame === 0 ? WALK_A : WALK_B) : (frame === 0 ? IDLE_A : IDLE_B), dx, dy, flip);
+        if (woofV) woof(dcx, dy, woofV);
+        if (petting) {
+          const ht = stateT * 0.001, ha = Math.min(1, stateT / 300) * (0.7 + 0.3 * Math.sin(ht * 4));
+          heart(dcx, Math.round(dy - 32 - Math.sin(ht * 2) * 6), ha, 3);
+        }
+
+        // Poo splats (persistent, on top of sprites)
+        for (const s of splats) drawSplat(s.x, s.y);
+
+        // Caine's placed items
+        drawPlaced();
+
+        // Falling poo drips + bird (drawn last so bird is always on top)
+        updatePooDrips(dt);
+        const BSCALE = 10;
+        spr(BIRD_PAL, birdFr === 0 ? BIRD_A : BIRD_B,
+            Math.round(birdX) - 45, Math.round(birdY) - 30, birdDir < 0, BSCALE);
+
+        // Caine on top of everything (he's an AI, he floats above it all)
+        drawCaine(now);
+
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    })();
+    </script>
+  </body>
+</html>

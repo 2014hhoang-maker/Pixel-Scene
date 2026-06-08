@@ -1043,6 +1043,195 @@
         }
       }
 
+      // ── Black Pomeranian sprite (10×9) ────────────────────────────────────────
+      const POM_PAL = {
+        ".": null,
+        K: "#080808", // black outline
+        B: "#1A1A1A", // near-black fur
+        b: "#2A2828", // slightly lighter fur
+        f: "#383434", // fur highlight
+        e: "#080808", // eye
+        W: "#F8F8F8", // eye white
+        P: "#CC8899", // tongue/nose pink
+        T: "#C8A060", // tan muzzle
+      };
+      const POM_A = [
+        ".KBbBbBbK.",
+        "KBfBbBbBfK",
+        "KBbWeKbWbK",
+        "KBbBTPBbbK",
+        ".KBbBbBbK.",
+        ".KbBbBbBK.",
+        "KbK.KbKbBK",
+        "KBK.KBKBBK",
+        ".KK..KK.KK",
+      ];
+      const POM_B = [
+        ".KBbBbBbK.",
+        "KBfBbBbBfK",
+        "KBbWeKbWbK",
+        "KBbBTPBbbK",
+        ".KBbBbBbK.",
+        ".KbBbBbBK.",
+        ".KbBKbBbK.",
+        ".KBBKBBbK.",
+        "..KK.KK.K.",
+      ];
+
+      // Pom state — follows Caine with a slight lag
+      const PS2 = 4; // pom sprite scale
+      let pomX = CAINE_HOME_X - 40, pomY = CAINE_HOME_Y + 20;
+      let pomFr = 0, pomFT = 0;
+      let pomTargetX = pomX, pomTargetY = pomY;
+
+      function updatePom(dt) {
+        // Pom lags behind Caine's feet
+        pomTargetX = caineX + 10;
+        pomTargetY = caineY + 12 * 5; // bottom of Caine sprite
+        const dx = pomTargetX - pomX, dy = pomTargetY - pomY;
+        pomX += dx * 0.06;
+        pomY += dy * 0.06;
+        pomFT += dt;
+        const moving = Math.abs(dx) > 4;
+        if (pomFT > (moving ? 180 : 500)) { pomFr = (pomFr + 1) % 2; pomFT = 0; }
+      }
+
+      function drawPom() {
+        const px = Math.round(pomX), py = Math.round(pomY);
+        shad(px + 5 * PS2, py + 9 * PS2 + 2, 22);
+        spr(POM_PAL, pomFr === 0 ? POM_A : POM_B, px, py, pomX > caineX, PS2);
+      }
+
+      // ── Caine chatbot ──────────────────────────────────────────────────────────
+      let chatBubble = null; // { text, alpha, timer }
+      let chatLoading = false;
+
+      async function askCaine(question) {
+        if (chatLoading) return;
+        chatLoading = true;
+        chatBubble = { text: "thinking...", alpha: 1, timer: 0, loading: true };
+        try {
+          const resp = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-20250514",
+              max_tokens: 1000,
+              system: "You are Caine, a cheerful glitchy AI robot from a pixel art animation scene. You have a pet black Pomeranian. Keep replies very short — 1-2 sentences max, fun and in-character. You speak with occasional glitchy quirks like [SIGNAL LOST] or [BUFFERING] but still make sense.",
+              messages: [{ role: "user", content: question }],
+            }),
+          });
+          const data = await resp.json();
+          const text = data.content?.[0]?.text || "[ ERROR ]";
+          chatBubble = { text, alpha: 1, timer: 0, loading: false };
+        } catch {
+          chatBubble = { text: "[ CONNECTION LOST ]", alpha: 1, timer: 0, loading: false };
+        }
+        chatLoading = false;
+      }
+
+      // Click on Caine to chat
+      const CHAT_PROMPTS = [
+        "Say a fun greeting to the viewers!",
+        "What do you think of the bird that keeps pooing on everyone?",
+        "What did you just place in the scene?",
+        "Say something nice about your pet Pomeranian!",
+        "What do you think of Mr. Bean?",
+        "Give the viewers a fun pixel art fact!",
+        "What's your favourite thing to place in the scene?",
+      ];
+      let lastPromptIdx = -1;
+
+      cv.addEventListener("click", (evt) => {
+        const rect = cv.getBoundingClientRect();
+        const mx = (evt.clientX - rect.left) * (cv.width / rect.width);
+        const my = (evt.clientY - rect.top) * (cv.height / rect.height);
+        const cs = 5;
+        const cx = caineX, cy = caineY;
+        if (mx >= cx && mx <= cx + 12*cs && my >= cy && my <= cy + 18*cs) {
+          let idx;
+          do { idx = Math.floor(Math.random() * CHAT_PROMPTS.length); }
+          while (idx === lastPromptIdx && CHAT_PROMPTS.length > 1);
+          lastPromptIdx = idx;
+          askCaine(CHAT_PROMPTS[idx]);
+        }
+      });
+      // Pointer cursor over Caine
+      cv.addEventListener("mousemove", (evt) => {
+        const rect = cv.getBoundingClientRect();
+        const mx = (evt.clientX - rect.left) * (cv.width / rect.width);
+        const my = (evt.clientY - rect.top) * (cv.height / rect.height);
+        const cs = 5;
+        const over = mx >= caineX && mx <= caineX + 12*cs && my >= caineY && my <= caineY + 18*cs;
+        cv.style.cursor = over ? "pointer" : "default";
+      });
+
+      function drawChatBubble(now) {
+        if (!chatBubble) return;
+        chatBubble.timer += 16;
+        if (!chatBubble.loading && chatBubble.timer > 4000)
+          chatBubble.alpha = Math.max(0, chatBubble.alpha - 0.01);
+        if (chatBubble.alpha <= 0) { chatBubble = null; return; }
+
+        const cs = 5;
+        const bx = Math.round(caineX) + 6*cs;
+        const by = Math.round(caineY) - 14;
+        // Word-wrap to ~22 chars
+        const words = chatBubble.text.split(" ");
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          if ((line + w).length > 22) { if (line) lines.push(line.trim()); line = w + " "; }
+          else line += w + " ";
+        }
+        if (line.trim()) lines.push(line.trim());
+
+        const bw = 200, bh = lines.length * 20 + 20;
+        const ox = Math.min(Math.max(bx - bw/2, 6), cv.width - bw - 6);
+        const oy = by - bh - 12;
+
+        c.save();
+        c.globalAlpha = chatBubble.alpha;
+        // Shadow
+        c.fillStyle = "rgba(0,0,0,0.2)";
+        c.fillRect(ox+4, oy+4, bw, bh);
+        // Box
+        c.fillStyle = "#0A1A0A";
+        c.strokeStyle = "#44FF44";
+        c.lineWidth = 2;
+        c.beginPath();
+        c.roundRect(ox, oy, bw, bh, 8);
+        c.fill(); c.stroke();
+        // Tail
+        c.fillStyle = "#0A1A0A";
+        c.beginPath();
+        c.moveTo(bx - 6, oy + bh);
+        c.lineTo(bx + 6, oy + bh);
+        c.lineTo(bx, oy + bh + 12);
+        c.closePath(); c.fill();
+        c.strokeStyle = "#44FF44"; c.lineWidth = 1.5;
+        c.stroke();
+        // Text
+        c.fillStyle = "#88FF88";
+        c.font = '12px "Courier New",monospace';
+        c.textAlign = "left";
+        c.textBaseline = "top";
+        const dots = ".".repeat(Math.floor(now / 300) % 4);
+        lines.forEach((ln, i) => {
+          const txt = chatBubble.loading && i === lines.length-1 ? ln + dots : ln;
+          c.fillText(txt, ox + 10, oy + 10 + i * 20);
+        });
+        // Click hint
+        if (!chatBubble.loading) {
+          c.globalAlpha *= 0.5;
+          c.fillStyle = "#44FF44";
+          c.font = '10px "Courier New",monospace';
+          c.textAlign = "right";
+          c.fillText("[click to ask again]", ox + bw - 8, oy + bh - 14);
+        }
+        c.restore();
+      }
+
       // ── Cloud draw helper ─────────────────────────────────────────────────────
       function drawCloud(cx, cy, scale, alpha) {
         c.save(); c.globalAlpha = alpha; c.fillStyle = "#FFFFFF";
@@ -1144,8 +1333,9 @@
 
         // Bird + poo update
         updateBird(dt);
-        // Caine update
+        // Caine + Pom update
         updateCaine(dt);
+        updatePom(dt);
 
         // ── DRAW ──────────────────────────────────────────────────────────────
 
@@ -1241,7 +1431,9 @@
             Math.round(birdX) - 45, Math.round(birdY) - 30, birdDir < 0, BSCALE);
 
         // Caine on top of everything (he's an AI, he floats above it all)
+        drawPom();
         drawCaine(now);
+        drawChatBubble(now);
 
         requestAnimationFrame(loop);
       }

@@ -1,0 +1,2989 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pixel Scene</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #5BA8E8; }
+      canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+    </style>
+  </head>
+  <body>
+    <canvas id="dc"></canvas>
+    <script>
+    (function () {
+      const cv = document.getElementById("dc");
+      const c = cv.getContext("2d");
+      c.imageSmoothingEnabled = false;
+
+      function resize() {
+        cv.width  = window.innerWidth;
+        cv.height = window.innerHeight;
+        c.imageSmoothingEnabled = false;
+      }
+      resize();
+      window.addEventListener("resize", resize);
+
+      const SC = 6;
+
+      // ── Palettes ───────────────────────────────────────────────────────────────
+      const DP = { ".": null, B: "#6B3010", O: "#D4884A", L: "#F0B06A", e: "#1A0800", n: "#A05028" };
+      const FP = {
+        ".": null, I: "#6B3010", F: "#A8B8C8", W: "#D0E8FF", S: "#6878A0",
+        H: "#8890A8", M: "#F0F0F0", B: "#4070D0", g: "#40A030", o: "#E07828",
+        C: "#E8C840", A: "#C03030", E: "#F0ECD8", D: "#8898B0", P: "#6878A0",
+      };
+      const CP = { ".": null, I: "#6B3010", K: "#909090", L: "#C4C4C4", n: "#C06060", "-": "#1A0800" };
+      const MP = { ".": null, J: "#1A2E08", G: "#3A5E1A", g: "#517030", V: "#C89008", W: "#F0DC40" };
+      const AP = {
+        ".": null, X: "#1A1008", H: "#403C38", h: "#5C5550", b: "#7A4828",
+        S: "#F0C898", s: "#C89860", E: "#2A7080", T: "#C89840", N: "#7A4020",
+        L: "#90C8D8", D: "#282018", P: "#1A1210",
+      };
+
+      // ── Sky themes (used by level creator) ───────────────────────────────────
+      const SKY_THEMES = [
+        { top: "#5BA8E8", mid: "#A8D8F8", bot: "#D0EEF8" }, // 0: Day
+        { top: "#8B1A00", mid: "#E84820", bot: "#FF9040" }, // 1: Sunset
+        { top: "#020210", mid: "#080830", bot: "#141450" }, // 2: Night
+        { top: "#14141E", mid: "#20202E", bot: "#2C2C3E" }, // 3: Storm
+      ];
+
+      // ── Mr. Bean palette (matching reference image) ────────────────────────────
+      // Black hair, peach skin, brown jacket, white shirt, red tie, dark check trousers
+      const BP = {
+        ".": null,
+        X: "#080808",   // black outline / hair
+        K: "#181818",   // near-black hair
+        S: "#F0C890",   // skin / peach face
+        s: "#D4A870",   // shadow skin
+        e: "#080808",   // eyes (black pixel)
+        G: "#E0E0E0",   // glasses frame (white/light)
+        W: "#F8F8F8",   // white shirt
+        R: "#CC1010",   // red tie
+        r: "#991010",   // tie shadow
+        J: "#6B3A18",   // brown jacket mid
+        j: "#4A2810",   // brown jacket dark
+        L: "#8C5028",   // brown jacket light
+        T: "#282828",   // dark trouser base
+        t: "#383030",   // trouser lighter (check)
+        C: "#585050",   // check pattern lighter
+        B: "#1A1008",   // shoe black
+        b: "#302010",   // shoe sole
+        N: "#C8A880",   // teddy body
+        n: "#A88060",   // teddy shadow
+        u: "#181008",   // teddy outline
+        H: "#E8E0D0",   // shirt collar highlight
+      };
+
+      // ── Mr. Bean sprite — 16×22 (wider to accommodate Teddy arm) ─────────────
+      // Based on the reference: black hair, peach face with glasses,
+      // brown jacket open, white shirt, red tie, dark check trousers, Teddy held up right
+      // Reading left→right, row by row
+      // Cols 0-15, rows 0-21
+
+      // Idle pose (arms slightly out, Teddy in right hand)
+      const BNI = [
+        //0123456789012345
+        "....XKKKKKKX....",  // 0  hair top
+        "...XKKKKKKKKKX..",  // 1  hair
+        "..XKKsSSSSSsKKX.",  // 2  hair + forehead
+        "..XKSSSSSSSSsKX.",  // 3  face
+        "..XSGeSeSeGSsX..",  // 4  glasses + eyes
+        "..XSSSSSSSSsX...",  // 5  cheeks / nose area
+        "..XSSSsSSSsX....",  // 6  mouth row
+        "..XHWWRRrWWHX...",  // 7  collar + red tie
+        ".XJWWWRrRWWWJX..",  // 8  shirt + tie upper
+        ".XJJWWRrRWWJJX..",  // 9
+        "XJjJJWRrRWJJjJX.",  // 10 jacket body + tie
+        "XJjJJJRrRJJJjJX.",  // 11
+        "XJjJJJRrRJJJjJX.",  // 12
+        "XJjJJJJJJJJJjJX.",  // 13 jacket lower
+        ".XJjJJJJJJJJjJX.",  // 14 jacket tail
+        "..XTtCtCTtCtCX..",  // 15 check trousers top
+        "..XTtCTtCTtCTX..",  // 16
+        "..XTTtTTTtTTTX..",  // 17
+        "..XTTTTTTTTTtX..",  // 18
+        "..XBBtX..XtBBX..",  // 19 legs split
+        "..XBBbX..XbBBX..",  // 20 shoes
+        "..XBbbX..XbbBX..",  // 21 shoe toe
+      ];
+
+      // Surprised pose — eyebrows up, mouth open "O"
+      const BNS = [
+        "....XKKKKKKX....",
+        "...XKKKKKKKKKX..",
+        "..XKKsSSSSSsKKX.",
+        "..XKSSSSSSSSsKX.",
+        "..XSeSeSeGGSsX..",  // brows raised (extra skin row above eyes implied by shift)
+        "..XSGeSeSeGSsX..",
+        "..XSSSsSSsSsX...",
+        "..XHWSsRRrWWHX..",  // mouth open = "s" pixel = dark oval
+        ".XJWWWRrRWWWJX..",
+        ".XJJWWRrRWWJJX..",
+        "XJjJJWRrRWJJjJX.",
+        "XJjJJJRrRJJJjJX.",
+        "XJjJJJRrRJJJjJX.",
+        "XJjJJJJJJJJJjJX.",
+        ".XJjJJJJJJJJjJX.",
+        "..XTtCtCTtCtCX..",
+        "..XTtCTtCTtCTX..",
+        "..XTTtTTTtTTTX..",
+        "..XTTTTTTTTTtX..",
+        "..XBBtX..XtBBX..",
+        "..XBBbX..XbBBX..",
+        "..XBbbX..XbbBX..",
+      ];
+
+      // Waving pose — right arm raised, Teddy held high (right side has extra cols)
+      // We'll draw Teddy separately as an overlay rather than bake into sprite
+      // for the wave, the right jacket arm goes up
+      const BNW = [
+        "....XKKKKKKX....",
+        "...XKKKKKKKKKX..",
+        "..XKKsSSSSSsKKX.",
+        "..XKSSSSSSSSsKX.",
+        "..XSGeSeSeGSsX..",
+        "..XSSSSSSSSsX...",
+        "..XSSSsSSSsX....",
+        "..XHWWRRrWWHX...",
+        ".XJWWWRrRWWWJjX.",  // right arm starts going up
+        ".XJJWWRrRWWJjjX.",
+        "XJjJJWRrRWJjjJX.",  // arm raised on right
+        "XJjJJJRrRJjJjJX.",
+        "XJjJJJRrRJJJjJX.",
+        "XJjJJJJJJJJJjJX.",
+        ".XJjJJJJJJJJjJX.",
+        "..XTtCtCTtCtCX..",
+        "..XTtCTtCTtCTX..",
+        "..XTTtTTTtTTTX..",
+        "..XTTTTTTTTTtX..",
+        "..XBBtX..XtBBX..",
+        "..XBBbX..XbBBX..",
+        "..XBbbX..XbbBX..",
+      ];
+
+      // Teddy bear — small 5×7 sprite drawn separately near Bean's raised hand
+      const TEDDY = [
+        ".uNu.",
+        "uNNNu",
+        "uNnNu",
+        ".uNu.",
+        ".uNu.",
+        "uNNNu",
+        ".uuu.",
+      ];
+      const TEDDY_PAL = { ".": null, u: "#1A1008", N: "#C8A880", n: "#A88060" };
+
+      // ── Dog sprites (18×13) ───────────────────────────────────────────────────
+      const DBODY = [
+        "BBBBBBBBBBBBBBBBB.",
+        "BOeOOOOOOOOOOOOOB.",
+        "BnOOOOOOOOOOOOOOB.",
+        ".BOOOOOOOOOOOOOOB.",
+        ".BOOOOOOOOOOOOOOB.",
+        ".BBBBBBBBBBBBBBB..",
+      ];
+      const mkD = (t0, t1, t2, l, p) => [t0, t1, t2, ...DBODY, l, l, l, p];
+      const IDLE_A = mkD(".BB.BB.......BB...", ".BLBBBLB......BB..", ".BBBBBBB......BB..", "..BOB.......BOB...", "..BBB.......BBB...");
+      const IDLE_B = mkD(".BB.BB..........BB", ".BLBBBLB........BB", ".BBBBBBB........BB", "..BOB.......BOB...", "..BBB.......BBB...");
+      const WALK_A = mkD(".BB.BB.......BB...", ".BLBBBLB......BB..", ".BBBBBBB......BB..", "...BOB.....BOB....", "...BBB.....BBB....");
+      const WALK_B = mkD(".BB.BB..........BB", ".BLBBBLB........BB", ".BBBBBBB........BB", ".BOB.........BOB..", ".BBB.........BBB..");
+
+      // ── Master Chief (14×20) ──────────────────────────────────────────────────
+      const MCI = [
+        "..JGGGGGGGGJ..",
+        ".JGGGGGGGGGGJ.",
+        "JGVVVVVVVVVVGJ",
+        "JGVVVWWVVVVVGJ",
+        "JGGGGGGGGGGGGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGgGGGGGgJGJ",
+        "JGJGGGGGGGGjGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        ".JGGGGGGGGGGJ.",
+        ".JGGGJ..JGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        "JGGGjJ..JjGGGJ",
+        "JGGGGj..jGGGGJ",
+      ];
+      const MCP = [
+        "..JGGGGGGGGJ..",
+        ".JGGGGGGGGGGJ.",
+        "JGVVVVVVVVVVGJ",
+        "JGVVVWWVVVVVGJ",
+        "JGGGGGGGGGGGGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGgGGGGGgJGJ",
+        "JGJGGGGGGGGjGJ",
+        "JGJGGGGGGGGJGJ",
+        "JGJGGGGGGGGJGg",
+        "JGJGGGGGGGGJgg",
+        ".JGGGGGGGGGGJg",
+        ".JGGGj..JGGGJg",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        ".JGGGj..jGGGJ.",
+        "JGGGjJ..JjGGGJ",
+        "JGGGGj..jGGGGJ",
+      ];
+
+      // ── Arthur Morgan (14×20) ─────────────────────────────────────────────────
+      const AMI = [
+        "...XHHHHhHX...",
+        "..XHhHHHhHHX..",
+        "..XHHHHHHhHX..",
+        "XhhbbbbbbbhHhX",
+        "XHHhHHHHHHhHHX",
+        "..XsSSSSSSsX..",
+        "..XSEEssSEEX..",
+        "..XSSssssssX..",
+        "..XXssXXXssX..",
+        "...XsNNNNNsX..",
+        "..XDNTTTTNDX..",
+        "..XDTTTLLTDX..",
+        "..XDTTTTTTDX..",
+        "..XDDDDDDDDX..",
+        "..XDDDDDDDDX..",
+        "...XDDX..XDDX.",
+        "...XDDX..XDDX.",
+        "...XPPX..XPPX.",
+        "..XPPPX..XPPPX",
+        "..XPPPX..XPPPX",
+      ];
+
+      // ── Fridge / door / cat sprites ───────────────────────────────────────────
+      const FRIDGE = [
+        "IIIIIIIIIIIIII",
+        "IFFFFFFFFFFFFI",
+        "IFWWWWWWWWWWFI",
+        "IFWWWWWWWWWWFI",
+        "IFWWWWWWWWWWFI",
+        "IIHHHHHHHHHHII",
+        "IIIIIIIIIIIIII",
+        "IWWWWWWWWWWWWI",
+        "IWMMWWWWWBBWWI",
+        "IWMMWWWWWBBWWI",
+        "ISSSSSSSSSSSSI",
+        "IWWggWWWooWWWI",
+        "IWWggWWWooWWWI",
+        "ISSSSSSSSSSSSI",
+        "IWCCCWWWWAAWWI",
+        "IWCCCWWWWAAWWI",
+        "ISSSSSSSSSSSSI",
+        "IWWWWWWWWWWWWI",
+        "IWEEWWWWWWWWWI",
+        "IWEEWWWWWWWWWI",
+        "IIIIIIIIIIIIII",
+        "IFFFFFFFFFFFFI",
+      ];
+      const DOOR = [
+        "IIIIII",
+        "IDDDDI",
+        "IDPPDI",
+        "IDPPDI",
+        "IDPPDI",
+        "IDDDDI",
+        "ISSSSI",
+        "IDBBDI",
+        "IDBBDI",
+        "IDBBDI",
+        "IDDDDI",
+        "ISSSSI",
+        "IDDDDI",
+        "IIIIII",
+      ];
+      const CAT = [
+        ".II.........",
+        "InnII.......",
+        "IIIIIIIIIII.",
+        "ILL--KKKKKI.",
+        "ILnLKKKKKKI.",
+        "IIIIIIIIIII.",
+      ];
+
+      // ── Renderer ───────────────────────────────────────────────────────────────
+      function spr(pal, sp, x, y, flip, scale) {
+        const s = scale || SC, cols = sp[0].length;
+        c.save();
+        if (flip) {
+          c.translate(x + cols * s, y);
+          c.scale(-1, 1);
+          c.translate(-x, -y);
+        }
+        for (let r = 0; r < sp.length; r++)
+          for (let cc = 0; cc < sp[r].length; cc++) {
+            const col = pal[sp[r][cc]];
+            if (!col) continue;
+            c.fillStyle = col;
+            c.fillRect(x + cc * s, y + r * s, s, s);
+          }
+        c.restore();
+      }
+      function shad(cx, y, rx, sx = 1) {
+        c.save();
+        c.translate(cx, y); c.scale(sx, 1);
+        c.globalAlpha = 0.1 * sx; c.fillStyle = "#333";
+        c.beginPath(); c.ellipse(0, 0, rx, 6, 0, 0, Math.PI * 2); c.fill();
+        c.restore();
+      }
+      function woof(cx, top, w) {
+        c.save(); c.globalAlpha = w.a;
+        const bx = cx - 20, by = top - w.fy - 20, bw = 76, bh = 32;
+        c.fillStyle = "#fff"; c.strokeStyle = "#6B3010"; c.lineWidth = 3;
+        c.beginPath();
+        c.moveTo(bx + 8, by); c.lineTo(bx + bw - 8, by);
+        c.arcTo(bx + bw, by, bx + bw, by + 8, 8);
+        c.lineTo(bx + bw, by + bh - 8);
+        c.arcTo(bx + bw, by + bh, bx + bw - 8, by + bh, 8);
+        c.lineTo(bx + 20, by + bh); c.lineTo(bx + 10, by + bh + 12);
+        c.lineTo(bx + 8, by + bh);
+        c.arcTo(bx, by + bh, bx, by + bh - 8, 8);
+        c.lineTo(bx, by + 8); c.arcTo(bx, by, bx + 8, by, 8);
+        c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = "#6B3010";
+        c.font = 'bold 13px "Courier New",monospace';
+        c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText("WOOF!", bx + bw / 2, by + bh / 2 - 1);
+        c.restore();
+      }
+      function heart(cx, y, alpha, S) {
+        const sh = [
+          [1,0],[2,0],[4,0],[5,0],
+          [0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
+          [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
+          [1,3],[2,3],[3,3],[4,3],[5,3],
+          [2,4],[3,4],[4,4],[3,5],
+        ];
+        c.save(); c.globalAlpha = alpha; c.fillStyle = "#FF3A3A";
+        const ox = cx - 3 * S;
+        for (const [px, py] of sh) c.fillRect(ox + px * S, y + py * S, S, S);
+        c.restore();
+      }
+      function zzz(cx, ty, t) {
+        const zs = [
+          { dx: 2, dy: 0, ph: 0, sz: 8 },
+          { dx: 11, dy: -9, ph: 0.33, sz: 10 },
+          { dx: 22, dy: -19, ph: 0.66, sz: 12 },
+        ];
+        for (const z of zs) {
+          const p = (t * 0.0007 + z.ph) % 1, a = Math.max(0, Math.sin(p * Math.PI));
+          c.save(); c.globalAlpha = a * 0.88; c.fillStyle = "#6B3010";
+          c.font = `bold ${z.sz}px "Courier New",monospace`;
+          c.textAlign = "left";
+          c.fillText("z", cx + z.dx, ty + z.dy - p * 16);
+          c.restore();
+        }
+      }
+      const PARTS = Array.from({ length: 14 }, () => ({
+        ox: Math.random() * 64 + 4, oy: Math.random() * 80 + 30,
+        spd: Math.random() * 0.24 + 0.12, ph: Math.random() * Math.PI * 2,
+        sz: Math.random() < 0.5 ? 4 : 6, al: Math.random() * 0.28 + 0.14,
+      }));
+      function pts(fx, fy, dt) {
+        for (const p of PARTS) {
+          p.oy -= (p.spd * dt) / 16; p.ph += dt * 0.003;
+          if (p.oy < -12) p.oy = Math.random() * 55 + 80;
+          c.save(); c.globalAlpha = p.al; c.fillStyle = "#A0D0FF";
+          c.fillRect(Math.round(fx + p.ox + Math.sin(p.ph) * 3), Math.round(fy + p.oy), p.sz, p.sz);
+          c.restore();
+        }
+      }
+
+      // ── Sun ───────────────────────────────────────────────────────────────────
+      function sun(cx, cy, now) {
+        const SP = 5, r_in = 6, r_out = 12, N = 8,
+          rot = now * 0.00025, pulse = 1 + 0.05 * Math.sin(now * 0.0018);
+        for (let py = -(r_out + 2); py <= r_out + 2; py++)
+          for (let px = -(r_out + 2); px <= r_out + 2; px++) {
+            const d = Math.sqrt(px * px + py * py) / pulse,
+              ang = Math.atan2(py, px) + rot,
+              spk = (Math.cos(N * ang) + 1) * 0.5,
+              rsp = r_in + (r_out - r_in) * spk;
+            let col = null;
+            if (d < r_in - 0.5) col = "#F07800";
+            else if (d < r_in + 0.5) col = "#F5A000";
+            else if (d < rsp - 0.5) col = "#F5C400";
+            else if (d < rsp + 1.2) col = "#1A1000";
+            if (col) {
+              c.fillStyle = col;
+              c.fillRect(Math.round(cx + px * SP) - (SP >> 1), Math.round(cy + py * SP) - (SP >> 1), SP, SP);
+            }
+          }
+      }
+
+      // ── Mr. Bean speech bubble ─────────────────────────────────────────────────
+      function beanBubble(cx, top, txt, alpha) {
+        if (alpha <= 0) return;
+        c.save(); c.globalAlpha = alpha;
+        const bw = txt.length * 11 + 20, bh = 28;
+        const bx = cx - bw / 2, by = top - bh - 14;
+        c.fillStyle = "#fff"; c.strokeStyle = "#1A1008"; c.lineWidth = 2.5;
+        c.beginPath();
+        c.moveTo(bx + 8, by); c.lineTo(bx + bw - 8, by);
+        c.arcTo(bx + bw, by, bx + bw, by + 8, 8);
+        c.lineTo(bx + bw, by + bh - 8);
+        c.arcTo(bx + bw, by + bh, bx + bw - 8, by + bh, 8);
+        c.lineTo(bx + bw / 2 + 6, by + bh);
+        c.lineTo(bx + bw / 2, by + bh + 10);
+        c.lineTo(bx + bw / 2 - 6, by + bh);
+        c.arcTo(bx, by + bh, bx, by + bh - 8, 8);
+        c.lineTo(bx, by + 8); c.arcTo(bx, by, bx + 8, by, 8);
+        c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = "#1A1008";
+        c.font = 'bold 14px "Courier New",monospace';
+        c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText(txt, cx, by + bh / 2);
+        c.restore();
+      }
+
+      // ── Layout — all derived from canvas size at draw time ──────────────────────
+      const DOG_H = 13 * SC, DOG_W = 18 * SC;
+      const CW = 14 * SC, CH = 20 * SC;
+      const FRG_H = 22 * SC, FRG_W = 14 * SC;
+      const BN_SW = 16, BN_SH = 22;
+      const BN_W = BN_SW * SC, BN_H = BN_SH * SC;
+      const CatW = 12 * SC, CatH = 6 * SC;
+
+      // These are computed fresh each frame from cv.height / cv.width
+      function getLayout() {
+        const FLOOR = Math.round(cv.height * 0.835);
+        const W = cv.width;
+        const HOME_X  = 40;
+        const MC_X    = Math.round(W * 0.25);
+        const MC_Y    = FLOOR - CH;
+        const PET_MC  = MC_X - DOG_W;
+        const AM_X    = Math.round(W * 0.51);
+        const AM_Y    = FLOOR - CH;
+        const PET_AM  = AM_X - DOG_W;
+        const BN_X    = Math.round(W * 0.68);
+        const BN_Y    = FLOOR - BN_H;
+        const FRG_L   = Math.round(W * 0.81);
+        const FRG_T   = FLOOR - FRG_H;
+        const DOOR_L  = FRG_L - 6 * SC;
+        const DOOR_T  = FRG_T + 7 * SC;
+        const NEAR_X  = DOOR_L - DOG_W - 8;
+        const CAT_X   = FRG_L + Math.floor((FRG_W - CatW) / 2);
+        const CAT_Y   = FRG_T - CatH;
+        const SUN_X   = Math.round(W * 0.935);
+        const SUN_Y   = 58;
+        return { FLOOR, HOME_X, MC_X, MC_Y, PET_MC, AM_X, AM_Y, PET_AM,
+                 BN_X, BN_Y, FRG_L, FRG_T, DOOR_L, DOOR_T, NEAR_X,
+                 CAT_X, CAT_Y, SUN_X, SUN_Y };
+      }
+
+      // Teddy scale
+      const TS = 5; // each teddy pixel = 5 canvas px
+
+      // ── Bean animation state ───────────────────────────────────────────────────
+      let beanPhase = 0, beanPhaseT = 0;
+      const BEAN_PHASE_DUR = [3200, 1100, 2200];
+      let beanBubbleAlpha = 0, beanBubbleTxt = "...";
+      let beanWaveArm = 0, beanWaveFT = 0;
+
+      // ── Bird sprite (9×6) ────────────────────────────────────────────────────
+      const BIRD_PAL = {
+        ".": null,
+        K: "#282828", G: "#888880", g: "#A8A898", W: "#F0F0E8",
+        R: "#CC4422", e: "#080808", B: "#6868A8", b: "#484888",
+      };
+      const BIRD_A = [
+        "..KGGgK..",
+        ".KGGeGGK.",
+        "KGGGWGGgK",
+        "KBbBGWBbK",
+        ".KBBBBBBK",
+        "..K.RR.K.",
+      ];
+      const BIRD_B = [
+        "KBbBGBbBK",
+        ".KGGeGGK.",
+        ".KGGWGgK.",
+        "..KGWGGK.",
+        "..KBBBBK.",
+        "...KRR.K.",
+      ];
+
+      // ── Poo splats and drips ──────────────────────────────────────────────────
+      const splats = [];
+      const pooDrips = [];
+
+      function spawnPoo(x, y) { pooDrips.push({ x, y, vy: 0 }); }
+
+      function drawSplat(sx, sy) {
+        const pixels = [[0,-1],[1,-1],[-1,0],[0,0],[1,0],[2,0],[-1,1],[0,1],[1,1],[0,2]];
+        const PS = 5;
+        c.fillStyle = "#F0F0E0";
+        for (const [px, py] of pixels) c.fillRect(sx + px*PS, sy + py*PS, PS, PS);
+        c.fillStyle = "#C8C8A8";
+        c.fillRect(sx, sy, PS, PS);
+        c.fillRect(sx+PS, sy-PS, PS, PS);
+      }
+
+      // ── Bird state ────────────────────────────────────────────────────────────
+      const BIRD_FLY = 30;
+      let birdX = -60, birdY = BIRD_FLY, birdDir = 1;
+      let birdFr = 0, birdFT = 0;
+      let birdTgtIdx = 0, birdState = "cruise";
+      let birdSwoopTgt = null, birdPooed = false;
+
+      function getBirdTargets() {
+        const { FLOOR, MC_X, AM_X, BN_X, CAT_X, CAT_Y, HOME_X } = getLayout();
+        return [
+          { x: MC_X  + CW/2,     y: FLOOR - CH    },
+          { x: AM_X  + CW/2,     y: FLOOR - CH    },
+          { x: BN_X  + BN_W/2,   y: FLOOR - BN_H  },
+          { x: CAT_X + CatW/2,   y: CAT_Y         },
+          { x: HOME_X + DOG_W/2, y: FLOOR - DOG_H },
+        ];
+      }
+
+      function pickBirdTarget() {
+        let idx;
+        const targets = getBirdTargets();
+        do { idx = Math.floor(Math.random() * targets.length); }
+        while (idx === birdTgtIdx && targets.length > 1);
+        birdTgtIdx = idx;
+      }
+
+      function updateBird(dt) {
+        birdFT += dt;
+        if (birdFT > 130) { birdFr = (birdFr + 1) % 2; birdFT = 0; }
+        const spd = 90 * dt / 1000;
+
+        if (birdState === "cruise") {
+          birdX += birdDir * spd;
+          birdY = BIRD_FLY + Math.sin(birdX * 0.035) * 9;
+          const targets = getBirdTargets();
+          const tgt = targets[birdTgtIdx];
+          const dist = tgt.x - birdX;
+          if (Math.abs(dist) < 130 && Math.sign(dist) === birdDir) {
+            birdSwoopTgt = tgt; birdState = "swoop_in"; birdPooed = false;
+          }
+          if (birdX > cv.width + 60) { birdX = -60; birdDir =  1; pickBirdTarget(); }
+          if (birdX < -60)           { birdX = cv.width+60; birdDir = -1; pickBirdTarget(); }
+        } else if (birdState === "swoop_in") {
+          birdX += birdDir * spd * 0.7;
+          const targetY = birdSwoopTgt.y - 28;
+          birdY += (targetY - birdY) * 0.09;
+          if (!birdPooed && Math.abs(birdX - birdSwoopTgt.x) < 18) {
+            spawnPoo(birdX, birdY + 30); birdPooed = true;
+          }
+          if (birdPooed && Math.abs(birdX - birdSwoopTgt.x) > 45) {
+            birdState = "swoop_out"; pickBirdTarget();
+          }
+        } else if (birdState === "swoop_out") {
+          birdX += birdDir * spd;
+          birdY += (BIRD_FLY - birdY) * 0.07;
+          if (Math.abs(birdY - BIRD_FLY) < 4) { birdY = BIRD_FLY; birdState = "cruise"; }
+        }
+      }
+
+      function updatePooDrips(dt) {
+        const { FLOOR } = getLayout();
+        const targets = getBirdTargets();
+        for (let i = pooDrips.length - 1; i >= 0; i--) {
+          const p = pooDrips[i];
+          p.vy += 0.35 * dt / 16;
+          p.y  += p.vy * dt / 16;
+          c.fillStyle = "#F0F0E0";
+          c.fillRect(p.x - 3, p.y - 4, 7, 9);
+          c.fillStyle = "#C8C8A8";
+          c.fillRect(p.x - 2, p.y - 2, 4, 4);
+          let splatY = FLOOR - 8;
+          for (const tgt of targets) {
+            if (Math.abs(p.x - tgt.x) < 44 && p.y >= tgt.y + 8) {
+              splatY = tgt.y + 8; break;
+            }
+          }
+          if (p.y >= splatY) {
+            splats.push({ x: Math.round(p.x), y: Math.round(splatY) });
+            pooDrips.splice(i, 1);
+          }
+        }
+      }
+
+      // ── Caine — AI robot (Caine from TADC inspired, green rounded robot) ────────
+      // 12×18 sprite: big round green head, small body, stubby legs
+      const CAINE_PAL = {
+        ".": null,
+        G: "#44EE44",  // bright green
+        g: "#22CC22",  // mid green
+        d: "#119911",  // dark green shadow
+        K: "#080808",  // black outline
+        W: "#FFFFFF",  // white eyes
+        e: "#080808",  // pupils
+        S: "#88FF88",  // highlight
+        B: "#CCFFCC",  // belly/light
+        T: "#33AA33",  // body mid
+        Y: "#FFFF44",  // antenna tip glow
+        k: "#444444",  // dark body
+      };
+      // Normal face
+      const CAINE_A = [
+        "...KKKKKK...",   // 0
+        "..KGGGGGgK..",   // 1  head
+        ".KGSSGGGGgK.",   // 2
+        "KGSGGGGGGgdK",   // 3
+        "KGGWeGGWeGdK",   // 4  eyes
+        "KGGGGGGGGGdK",   // 5
+        "KGGGKKKGGGdK",   // 6  smile
+        "KGGGGGGGGGdK",   // 7
+        ".KGGGGGGGdK.",   // 8
+        "..KKgTTKK...",   // 9  neck
+        ".KkTTTTTkK.",    // 10 body
+        "KkTBBBBBTkK.",   // 11
+        "KkTBBBBBTkK.",   // 12
+        ".KkTTTTTkK.",    // 13
+        "..KKkkkKK...",   // 14
+        "..KkK.KkK...",   // 15 legs
+        "..KkK.KkK...",   // 16
+        "..KKK.KKK...",   // 17 feet
+      ];
+      // Wide grin / placing face
+      const CAINE_B = [
+        "...KKKKKK...",
+        "..KGGGGGgK..",
+        ".KGSSGGGGgK.",
+        "KGSGGGGGGgdK",
+        "KGGWeGGWeGdK",
+        "KGGGGGGGGGdK",
+        "KGKKKKKKKGdK",   // bigger grin row 1
+        "KGGGGGGGGGdK",
+        ".KGGGGGGGdK.",
+        "..KKgTTKK...",
+        ".KkTTTTTkK.",
+        "KkTBBBBBTkK.",
+        "KkTBBBBBTkK.",
+        ".KkTTTTTkK.",
+        "..KKkkkKK...",
+        "..KkK.KkK...",
+        "..KkK.KkK...",
+        "..KKK.KKK...",
+      ];
+
+      // Placed items: pixel doodles Caine stamps into the scene
+      const PLACED = [];
+
+      const ITEM_DEFS = [
+        { name: "pencil",
+          pal: { ".":null, K:"#080808", Y:"#F5D020", P:"#F0A080", T:"#C8A060", G:"#909090" },
+          sp:  [ "......K",
+                 ".....KYK",
+                 "....KYYYK",
+                 "...KYYYYK",
+                 "..KYYYYYK",
+                 ".KYYYYYYK",
+                 "KGGGGGGGK",
+                 ".KPPPPPK.",
+                 "..KKKKK.." ] },
+
+        { name: "paper",
+          pal: { ".":null, K:"#080808", W:"#F8F8F8", L:"#E0E0D8", B:"#8888CC" },
+          sp:  [ "KWWWWWWK",
+                 "KLLLLLLK",
+                 "KBWWWWWK",
+                 "KLLLLLLK",
+                 "KBWWWWWK",
+                 "KLLLLLLK",
+                 "KBWWWWWK",
+                 "KKKKKKKKK" ] },
+
+        { name: "cup",
+          pal: { ".":null, K:"#080808", R:"#CC3333", r:"#882222", W:"#F8F8F8", S:"#FFAAAA" },
+          sp:  [ ".KWWWWK.",
+                 "KRRRRRRRK",
+                 "KrRSRRRrK",
+                 "KrRRRRRrK",
+                 "KrRRRRRrK",
+                 ".KrRRRrK.",
+                 "..KrrrK.." ] },
+
+        { name: "spoon",
+          pal: { ".":null, K:"#080808", S:"#D8D8D8", s:"#A8A8A8", H:"#F0F0F0" },
+          sp:  [ "..KSK..",
+                 ".KHSsK.",
+                 ".KSSSsK",
+                 "..KSsK.",
+                 "...KK..",
+                 "...KSK.",
+                 "...KSK.",
+                 "...KSK.",
+                 "...KKK." ] },
+
+        { name: "hat",
+          pal: { ".":null, K:"#080808", T:"#1A1A1A", t:"#383838", W:"#F0F0F0", R:"#CC2222" },
+          sp:  [ "...KTTK...",
+                 "...KTTk...",
+                 "...KTTk...",
+                 "..KTTTtK..",
+                 ".KTTTTTtK.",
+                 "KTTTTTTTTK",
+                 "KWWWWWWWWK",
+                 "KTTTTTTTTK" ] },
+
+        { name: "sock",
+          pal: { ".":null, K:"#080808", B:"#4466CC", b:"#2244AA", W:"#F0F0F0", S:"#8899DD" },
+          sp:  [ "..KBBK..",
+                 ".KBBBbK.",
+                 ".KBSBbK.",
+                 ".KBBBbK.",
+                 ".KBBBbK.",
+                 ".KBBBbK.",
+                 "KBBBBBbK",
+                 "KBBBBBbK",
+                 ".KKKKKKK" ] },
+
+        { name: "shoe",
+          pal: { ".":null, K:"#080808", N:"#1A1008", n:"#302010", W:"#F8F8F8", G:"#888888" },
+          sp:  [ "....KNK.",
+                 "...KNNnK",
+                 "..KNNNnK",
+                 ".KNNNNnK",
+                 "KNNNNNnK",
+                 "KNNNNNnK",
+                 "KWWWWWWK",
+                 "KGGGGGGGK" ] },
+
+        { name: "ball",
+          pal: { ".":null, K:"#080808", R:"#DD2222", r:"#AA1111", W:"#FFFFFF", S:"#FF8888" },
+          sp:  [ "..KRRK..",
+                 ".KRSRrK.",
+                 "KRSSRRrK",
+                 "KRSRRRrK",
+                 "KRRRRRrK",
+                 ".KRrRrK.",
+                 "..KrrK.." ] },
+
+        { name: "box",
+          pal: { ".":null, K:"#080808", B:"#C8902A", b:"#A07020", T:"#E8B84A", L:"#F0D080" },
+          sp:  [ "KLLLLLLK",
+                 "KLTLTLlK",
+                 "KTTTTTTK",
+                 "KbBBBBbK",
+                 "KbBbBBbK",
+                 "KbBBBBbK",
+                 "KbBBBBbK",
+                 "KKKKKKKK" ] },
+
+        { name: "bag",
+          pal: { ".":null, K:"#080808", P:"#CC88CC", p:"#AA44AA", H:"#EEB8EE", S:"#884488" },
+          sp:  [ "..KSSK..",
+                 ".KSSSSSK",
+                 "KPPPPPPpK",
+                 "KPHPPPPpK",
+                 "KPPPPPPpK",
+                 "KPPPPPPpK",
+                 "KPPPPPPpK",
+                 ".KpppppK." ] },
+
+        { name: "cat",
+          pal: { ".":null, K:"#080808", O:"#E8A840", o:"#C07820", W:"#F8F8F8", e:"#44CC44", p:"#FFB8C8" },
+          sp:  [ "K...K...K",
+                 "KOK.KOK.",
+                 "KOOOOOOOK",
+                 "KOeWOeWOK",
+                 "KOOoOOOOK",
+                 "KOOpOOOOK",
+                 ".KOOOOOK.",
+                 ".KoooooK.",
+                 "KoK...KoK" ] },
+
+        { name: "dog",
+          pal: { ".":null, K:"#080808", T:"#C87830", t:"#A05820", W:"#F0F0F0", e:"#1A0800", p:"#FFB8C8" },
+          sp:  [ ".KTK.KTK.",
+                 ".KTTTTTK.",
+                 "KTTWTWTtK",
+                 "KTTeTeТtK",
+                 "KTTTpTTtK",
+                 ".KTTTTTk.",
+                 ".KtttttK.",
+                 "KtK...KtK" ] },
+
+        { name: "bird",
+          pal: { ".":null, K:"#080808", B:"#5588EE", b:"#3366CC", W:"#F8F8F8", Y:"#FFDD00", e:"#080808" },
+          sp:  [ "..KBK...",
+                 ".KBBbK..",
+                 "KBWebbK.",
+                 "KBWBBbYK",
+                 ".KBBbbK.",
+                 "..KBKYK.",
+                 "...KKK.." ] },
+
+        { name: "fish",
+          pal: { ".":null, K:"#080808", B:"#3399EE", b:"#1166BB", S:"#88CCFF", e:"#080808", Y:"#FFEE00" },
+          sp:  [ "KbK....K",
+                 "KbbbKSbK",
+                 "KbSSSebbK",
+                 "KbSSSbYbK",
+                 "KbbbKSbK",
+                 "KbK....K" ] },
+
+        { name: "cow",
+          pal: { ".":null, K:"#080808", W:"#F8F8F8", B:"#282828", P:"#FFB8C8", e:"#080808", H:"#C8A080" },
+          sp:  [ ".KHKHK..",
+                 "KWWWWWWK",
+                 "KWBeWBWK",
+                 "KWWWWWwK",
+                 "KWWPWWwK",
+                 ".KWWWWK.",
+                 "KWK.KWK.",
+                 "KWK.KWK." ] },
+
+        { name: "horse",
+          pal: { ".":null, K:"#080808", B:"#7A4820", b:"#5A3010", W:"#F8F8F8", M:"#3A2010", e:"#080808" },
+          sp:  [ "..KMK...",
+                 ".KBBbK..",
+                 "KBBBBbK.",
+                 "KBBeBBbK",
+                 ".KBBBbK.",
+                 "KBBBBBbK",
+                 "KbK.KbK.",
+                 "KbK.KbK." ] },
+
+        { name: "pig",
+          pal: { ".":null, K:"#080808", P:"#FFB8C8", p:"#EE8899", W:"#F8F8F8", e:"#080808", n:"#FF8899" },
+          sp:  [ "..KPPK..",
+                 ".KPPPpK.",
+                 "KPPePePpK",
+                 "KPPPnPPpK",
+                 "KPPPPPPpK",
+                 ".KPpPpPK.",
+                 ".KpK.KpK." ] },
+
+        { name: "duck",
+          pal: { ".":null, K:"#080808", Y:"#F5C438", y:"#C89010", W:"#F8F8F8", O:"#E07820", e:"#080808" },
+          sp:  [ "..KWK...",
+                 ".KWWwK..",
+                 "KYYWWwYK",
+                 "KYYeYYyK",
+                 "KYYYYYyK",
+                 ".KYYYyK.",
+                 "..KOOK.." ] },
+
+        { name: "bear",
+          pal: { ".":null, K:"#080808", B:"#8B5E3C", b:"#5A3820", T:"#C8A080", e:"#080808", n:"#CC6644", W:"#F8F0E8" },
+          sp:  [ "KbK.KbK.",
+                 "KBBBBBKB",
+                 "KBTBBTbK",
+                 "KBBeBeBbK",
+                 "KBBBnBBbK",
+                 "KBWBBBBbK",
+                 ".KBBBBbK.",
+                 "KBK.KBK." ] },
+
+        { name: "lion",
+          pal: { ".":null, K:"#080808", Y:"#E8B830", y:"#C08010", O:"#E87820", W:"#F8F0D0", e:"#080808", n:"#CC4422" },
+          sp:  [ ".KyYyYyK.",
+                 "KyYYYYYyK",
+                 "KyYWYWYyK",
+                 "KyYYeYeYyK",
+                 "KyYYYnYYyK",
+                 "KyYWYYYyK",
+                 ".KyYYYyK.",
+                 "..KyOyK..",
+                 ".KyK.KyK." ] },
+      ];
+
+      // Caine state machine
+      const CAINE_HOME_X = 60, CAINE_HOME_Y = 150;
+      let caineX = CAINE_HOME_X, caineY = CAINE_HOME_Y;
+      let caineVX = 0, caineVY = 0;
+      let caineState = "idle", caineT = 0;
+      let caineTarget = null;
+      let caineItemIdx = 0;
+      let caineFrame = 0, caineFT = 0;
+      let caineFlash = 0, caineGlow = 0;
+      let caineAntY = 0;
+
+      // Fully random placement — anywhere on the ground or mid-air
+      function randomDropZone() {
+        const { FLOOR } = getLayout();
+        const margin = 40;
+        const x = margin + Math.random() * (cv.width - margin * 2);
+        const y = Math.random() < 0.7
+          ? FLOOR - 20 - Math.random() * 40
+          : FLOOR - 80 - Math.random() * 160;
+        return { x, y };
+      }
+
+      function updateCaine(dt) {
+        caineT += dt;
+        caineFT += dt;
+        if (caineFT > 350) { caineFrame = (caineFrame+1)%2; caineFT = 0; }
+        caineFlash = Math.max(0, caineFlash - dt * 0.004);
+        caineGlow  = Math.max(0, caineGlow  - dt * 0.003);
+
+        if (caineState === "idle") {
+          caineX += (CAINE_HOME_X - caineX) * 0.03;
+          caineY += (CAINE_HOME_Y - caineY) * 0.03;
+          caineAntY = Math.sin(caineT * 0.004) * 5;
+          if (caineT > 4000) {
+            caineT = 0;
+            caineTarget = randomDropZone();
+            caineItemIdx = Math.floor(Math.random() * ITEM_DEFS.length);
+            caineState = "fly_to";
+          }
+        } else if (caineState === "fly_to") {
+          // Zoom toward target
+          const tx = caineTarget.x, ty = caineTarget.y - 60;
+          caineVX += (tx - caineX) * 0.08;
+          caineVY += (ty - caineY) * 0.08;
+          caineVX *= 0.78; caineVY *= 0.78;
+          caineX += caineVX * dt / 16;
+          caineY += caineVY * dt / 16;
+          caineAntY = Math.sin(caineT * 0.012) * 8; // faster wobble when flying
+          if (Math.abs(caineX - tx) < 12 && Math.abs(caineY - ty) < 12) {
+            caineState = "place";
+            caineT = 0;
+            caineFlash = 1.0;
+            caineGlow  = 1.0;
+            // Stamp the item
+            PLACED.push({
+              type: caineItemIdx,
+              x: caineTarget.x,
+              y: caineTarget.y,
+              age: 0,
+            });
+          }
+        } else if (caineState === "place") {
+          caineAntY = Math.sin(caineT * 0.02) * 3;
+          if (caineT > 700) {
+            caineState = "fly_back";
+            caineT = 0;
+            caineVX = 0; caineVY = 0;
+          }
+        } else if (caineState === "fly_back") {
+          const tx = CAINE_HOME_X, ty = CAINE_HOME_Y;
+          caineVX += (tx - caineX) * 0.06;
+          caineVY += (ty - caineY) * 0.06;
+          caineVX *= 0.80; caineVY *= 0.80;
+          caineX += caineVX * dt / 16;
+          caineY += caineVY * dt / 16;
+          if (Math.abs(caineX - tx) < 10 && Math.abs(caineY - ty) < 10) {
+            caineState = "idle";
+            caineT = 0;
+          }
+        }
+        // Age placed items
+        for (const p of PLACED) p.age += dt;
+      }
+
+      function drawCaine(now) {
+        const cs = 5; // sprite scale
+        const cx = Math.round(caineX), cy = Math.round(caineY);
+
+        // Glow ring when placing
+        if (caineGlow > 0) {
+          c.save();
+          c.globalAlpha = caineGlow * 0.5;
+          c.strokeStyle = "#88FF88";
+          c.lineWidth = 6;
+          c.beginPath();
+          c.arc(cx + 6*cs, cy + 4*cs, 38, 0, Math.PI*2);
+          c.stroke();
+          c.restore();
+        }
+
+        // Antenna (drawn above sprite)
+        const antX = cx + 6*cs - 2, antBaseY = cy - 4;
+        c.fillStyle = "#119911";
+        c.fillRect(antX, antBaseY + Math.round(caineAntY), 4, 14);
+        // Glowing tip
+        c.fillStyle = "#FFFF44";
+        c.fillRect(antX - 2, antBaseY - 6 + Math.round(caineAntY), 8, 8);
+        c.save();
+        c.globalAlpha = 0.5 + 0.5 * Math.sin(now * 0.006);
+        c.fillStyle = "#FFFFAA";
+        c.fillRect(antX - 4, antBaseY - 10 + Math.round(caineAntY), 12, 12);
+        c.restore();
+
+        // Sprite
+        spr(CAINE_PAL, caineFrame === 0 ? CAINE_A : CAINE_B, cx, cy, false, cs);
+
+        // Flash overlay when placing
+        if (caineFlash > 0) {
+          c.save();
+          c.globalAlpha = caineFlash * 0.35;
+          c.fillStyle = "#AAFFAA";
+          c.fillRect(cx, cy, 12*cs, 18*cs);
+          c.restore();
+        }
+
+        // "PLACING..." label when in place state
+        if (caineState === "place" || caineState === "fly_to") {
+          c.save();
+          c.globalAlpha = 0.85;
+          c.fillStyle = "#CCFFCC";
+          c.strokeStyle = "#119911";
+          c.lineWidth = 2;
+          c.font = 'bold 11px "Courier New",monospace';
+          c.textAlign = "center";
+          const lbl = caineState === "place"
+            ? `[ ${ITEM_DEFS[caineItemIdx].name.toUpperCase()} PLACED ]`
+            : "PLACING...";
+          c.strokeText(lbl, cx + 6*cs, cy - 18);
+          c.fillText(lbl, cx + 6*cs, cy - 18);
+          c.restore();
+        }
+      }
+
+      function drawPlaced() {
+        for (const p of PLACED) {
+          const def = ITEM_DEFS[p.type];
+          const alpha = Math.min(1, p.age / 300);
+          const sc = alpha < 1 ? 4 + (1 - alpha) * 5 : 7;
+          c.save();
+          c.globalAlpha = alpha;
+          const sw = def.sp[0].length * sc, sh = def.sp.length * sc;
+          spr(def.pal, def.sp, Math.round(p.x - sw / 2), Math.round(p.y - sh), false, sc);
+          c.restore();
+        }
+      }
+
+      // ── Black Pomeranian sprite (10×9) ────────────────────────────────────────
+      const POM_PAL = {
+        ".": null,
+        K: "#080808", // black outline
+        B: "#1A1A1A", // near-black fur
+        b: "#2A2828", // slightly lighter fur
+        f: "#383434", // fur highlight
+        e: "#080808", // eye
+        W: "#F8F8F8", // eye white
+        P: "#CC8899", // tongue/nose pink
+        T: "#C8A060", // tan muzzle
+      };
+      const POM_A = [
+        ".KBbBbBbK.",
+        "KBfBbBbBfK",
+        "KBbWeKbWbK",
+        "KBbBTPBbbK",
+        ".KBbBbBbK.",
+        ".KbBbBbBK.",
+        "KbK.KbKbBK",
+        "KBK.KBKBBK",
+        ".KK..KK.KK",
+      ];
+      const POM_B = [
+        ".KBbBbBbK.",
+        "KBfBbBbBfK",
+        "KBbWeKbWbK",
+        "KBbBTPBbbK",
+        ".KBbBbBbK.",
+        ".KbBbBbBK.",
+        ".KbBKbBbK.",
+        ".KBBKBBbK.",
+        "..KK.KK.K.",
+      ];
+
+      // Pom state — follows Caine with a slight lag
+      const PS2 = 4; // pom sprite scale
+      let pomX = CAINE_HOME_X - 40, pomY = CAINE_HOME_Y + 20;
+      let pomFr = 0, pomFT = 0;
+      let pomTargetX = pomX, pomTargetY = pomY;
+
+      function updatePom(dt) {
+        // Pom lags behind Caine's feet
+        pomTargetX = caineX + 10;
+        pomTargetY = caineY + 12 * 5; // bottom of Caine sprite
+        const dx = pomTargetX - pomX, dy = pomTargetY - pomY;
+        pomX += dx * 0.06;
+        pomY += dy * 0.06;
+        pomFT += dt;
+        const moving = Math.abs(dx) > 4;
+        if (pomFT > (moving ? 180 : 500)) { pomFr = (pomFr + 1) % 2; pomFT = 0; }
+      }
+
+      function drawPom() {
+        const px = Math.round(pomX), py = Math.round(pomY);
+        shad(px + 5 * PS2, py + 9 * PS2 + 2, 22);
+        spr(POM_PAL, pomFr === 0 ? POM_A : POM_B, px, py, pomX > caineX, PS2);
+      }
+
+      // ── Caine chatbot ──────────────────────────────────────────────────────────
+      let chatBubble = null; // { text, alpha, timer }
+      let chatLoading = false;
+
+      async function askCaine(question) {
+        if (chatLoading) return;
+        chatLoading = true;
+        chatBubble = { text: "thinking...", alpha: 1, timer: 0, loading: true };
+        try {
+          const resp = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-20250514",
+              max_tokens: 1000,
+              system: "You are Caine, a cheerful glitchy AI robot from a pixel art animation scene. You have a pet black Pomeranian. Keep replies very short — 1-2 sentences max, fun and in-character. You speak with occasional glitchy quirks like [SIGNAL LOST] or [BUFFERING] but still make sense.",
+              messages: [{ role: "user", content: question }],
+            }),
+          });
+          const data = await resp.json();
+          const text = data.content?.[0]?.text || "[ ERROR ]";
+          chatBubble = { text, alpha: 1, timer: 0, loading: false };
+        } catch {
+          chatBubble = { text: "[ CONNECTION LOST ]", alpha: 1, timer: 0, loading: false };
+        }
+        chatLoading = false;
+      }
+
+      // Click on Caine to chat
+      const CHAT_PROMPTS = [
+        "Say a fun greeting to the viewers!",
+        "What do you think of the bird that keeps pooing on everyone?",
+        "What did you just place in the scene?",
+        "Say something nice about your pet Pomeranian!",
+        "What do you think of Mr. Bean?",
+        "Give the viewers a fun pixel art fact!",
+        "What's your favourite thing to place in the scene?",
+      ];
+      let lastPromptIdx = -1;
+
+      cv.addEventListener("click", (evt) => {
+        const rect = cv.getBoundingClientRect();
+        const mx = (evt.clientX - rect.left) * (cv.width / rect.width);
+        const my = (evt.clientY - rect.top) * (cv.height / rect.height);
+        const cs = 5;
+        const cx = caineX, cy = caineY;
+        if (mx >= cx && mx <= cx + 12*cs && my >= cy && my <= cy + 18*cs) {
+          let idx;
+          do { idx = Math.floor(Math.random() * CHAT_PROMPTS.length); }
+          while (idx === lastPromptIdx && CHAT_PROMPTS.length > 1);
+          lastPromptIdx = idx;
+          askCaine(CHAT_PROMPTS[idx]);
+        }
+      });
+      // Pointer cursor over Caine
+      cv.addEventListener("mousemove", (evt) => {
+        const rect = cv.getBoundingClientRect();
+        const mx = (evt.clientX - rect.left) * (cv.width / rect.width);
+        const my = (evt.clientY - rect.top) * (cv.height / rect.height);
+        const cs = 5;
+        const over = mx >= caineX && mx <= caineX + 12*cs && my >= caineY && my <= caineY + 18*cs;
+        cv.style.cursor = over ? "pointer" : "default";
+      });
+
+      function drawChatBubble(now) {
+        if (!chatBubble) return;
+        chatBubble.timer += 16;
+        if (!chatBubble.loading && chatBubble.timer > 4000)
+          chatBubble.alpha = Math.max(0, chatBubble.alpha - 0.01);
+        if (chatBubble.alpha <= 0) { chatBubble = null; return; }
+
+        const cs = 5;
+        const bx = Math.round(caineX) + 6*cs;
+        const by = Math.round(caineY) - 14;
+        // Word-wrap to ~22 chars
+        const words = chatBubble.text.split(" ");
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          if ((line + w).length > 22) { if (line) lines.push(line.trim()); line = w + " "; }
+          else line += w + " ";
+        }
+        if (line.trim()) lines.push(line.trim());
+
+        const bw = 200, bh = lines.length * 20 + 20;
+        const ox = Math.min(Math.max(bx - bw/2, 6), cv.width - bw - 6);
+        const oy = by - bh - 12;
+
+        c.save();
+        c.globalAlpha = chatBubble.alpha;
+        // Shadow
+        c.fillStyle = "rgba(0,0,0,0.2)";
+        c.fillRect(ox+4, oy+4, bw, bh);
+        // Box
+        c.fillStyle = "#0A1A0A";
+        c.strokeStyle = "#44FF44";
+        c.lineWidth = 2;
+        c.beginPath();
+        c.roundRect(ox, oy, bw, bh, 8);
+        c.fill(); c.stroke();
+        // Tail
+        c.fillStyle = "#0A1A0A";
+        c.beginPath();
+        c.moveTo(bx - 6, oy + bh);
+        c.lineTo(bx + 6, oy + bh);
+        c.lineTo(bx, oy + bh + 12);
+        c.closePath(); c.fill();
+        c.strokeStyle = "#44FF44"; c.lineWidth = 1.5;
+        c.stroke();
+        // Text
+        c.fillStyle = "#88FF88";
+        c.font = '12px "Courier New",monospace';
+        c.textAlign = "left";
+        c.textBaseline = "top";
+        const dots = ".".repeat(Math.floor(now / 300) % 4);
+        lines.forEach((ln, i) => {
+          const txt = chatBubble.loading && i === lines.length-1 ? ln + dots : ln;
+          c.fillText(txt, ox + 10, oy + 10 + i * 20);
+        });
+        // Click hint
+        if (!chatBubble.loading) {
+          c.globalAlpha *= 0.5;
+          c.fillStyle = "#44FF44";
+          c.font = '10px "Courier New",monospace';
+          c.textAlign = "right";
+          c.fillText("[click to ask again]", ox + bw - 8, oy + bh - 14);
+        }
+        c.restore();
+      }
+
+      // ── Cloud draw helper ─────────────────────────────────────────────────────
+      function drawCloud(cx, cy, scale, alpha) {
+        c.save(); c.globalAlpha = alpha; c.fillStyle = "#FFFFFF";
+        const b = scale;
+        [[0,0,5,3],[3,-2,6,3],[8,0,5,3],[-1,1,4,2],[8,1,4,2]].forEach(([dx,dy,w,h]) =>
+          c.fillRect(cx + dx*b, cy + dy*b, w*b, h*b));
+        c.restore();
+      }
+
+      // ── Scene state ────────────────────────────────────────────────────────────
+      let dogX = 40, state = "idle_home", stateT = 0, frame = 0, fT = 0;
+      let bobPh = 0, jumpY = 0, jumping = false, jumpT = 0, woofV = null, flip = true;
+      let mcPet = false, amPet = false, mcFr = 0, mcFT = 0, amFr = 0, amFT = 0;
+      let lastT = performance.now();
+
+      function loop(now) {
+        const dt = Math.min(now - lastT, 50);
+        lastT = now;
+        stateT += dt;
+
+        // Recompute layout each frame so it tracks canvas size
+        const { FLOOR, HOME_X, MC_X, MC_Y, PET_MC, AM_X, AM_Y, PET_AM,
+                BN_X, BN_Y, FRG_L, FRG_T, DOOR_L, DOOR_T, NEAR_X,
+                CAT_X, CAT_Y, SUN_X, SUN_Y } = getLayout();
+
+        // Dog state machine
+        switch (state) {
+          case "idle_home":
+            flip = true; mcPet = false; amPet = false;
+            if (stateT > 1000) { state = "walk_to_mc"; stateT = 0; frame = 0; }
+            break;
+          case "walk_to_mc":
+            flip = true; dogX += dt * 0.09;
+            if (dogX >= PET_MC) { dogX = PET_MC; state = "at_mc"; stateT = 0; frame = 0; mcPet = true; }
+            break;
+          case "at_mc":
+            flip = true; mcPet = true;
+            if (stateT > 1900) { state = "walk_to_am"; stateT = 0; frame = 0; mcPet = false; }
+            break;
+          case "walk_to_am":
+            flip = true; dogX += dt * 0.09;
+            if (dogX >= PET_AM) { dogX = PET_AM; state = "at_am"; stateT = 0; frame = 0; amPet = true; }
+            break;
+          case "at_am":
+            flip = true; amPet = true;
+            if (stateT > 1900) { state = "walk_to_fridge"; stateT = 0; frame = 0; amPet = false; }
+            break;
+          case "walk_to_fridge":
+            flip = true; dogX += dt * 0.09;
+            if (dogX >= NEAR_X) { dogX = NEAR_X; state = "at_fridge"; stateT = 0; frame = 0; jumping = true; jumpT = 0; woofV = { a: 1, fy: 0, t: 0 }; }
+            break;
+          case "at_fridge":
+            flip = true;
+            if (stateT > 1600) { state = "walk_home"; stateT = 0; frame = 0; }
+            break;
+          case "walk_home":
+            flip = false; dogX -= dt * 0.09;
+            if (dogX <= HOME_X) { dogX = HOME_X; state = "idle_home"; stateT = 0; frame = 0; }
+            break;
+        }
+        fT += dt;
+        const walking = state.startsWith("walk"), petting = state === "at_mc" || state === "at_am";
+        if (fT > (walking ? 160 : petting ? 110 : 460)) { frame = (frame + 1) % 2; fT = 0; }
+        mcFT += dt;
+        if (mcFT > (mcPet ? 240 : 700)) { mcFr = (mcFr + 1) % 2; mcFT = 0; }
+        amFT += dt;
+        if (amFT > (amPet ? 240 : 700)) { amFr = (amFr + 1) % 2; amFT = 0; }
+        bobPh += dt * 0.002;
+        const bob = walking ? Math.sin(bobPh * 6) * 2.2 : Math.sin(bobPh) * 1.3;
+        if (jumping) {
+          jumpT += dt;
+          const jt = jumpT / 380;
+          jumpY = jt <= 1 ? Math.sin(jt * Math.PI) * 20 : 0;
+          if (jt > 1) { jumping = false; jumpY = 0; }
+        }
+        if (woofV) {
+          woofV.t += dt; woofV.fy = woofV.t * 0.04;
+          woofV.a = Math.max(0, 1 - woofV.t / 1500);
+          if (woofV.a <= 0) woofV = null;
+        }
+
+        // Bean phase cycling
+        beanPhaseT += dt;
+        if (beanPhaseT >= BEAN_PHASE_DUR[beanPhase]) {
+          beanPhase = (beanPhase + 1) % 3;
+          beanPhaseT = 0;
+          if (beanPhase === 1) beanBubbleTxt = "!";
+          else if (beanPhase === 2) beanBubbleTxt = "Teddy!";
+          else beanBubbleTxt = "...";
+        }
+        if (beanPhase === 0) {
+          beanBubbleAlpha = 0.3 + 0.12 * Math.sin(now * 0.001);
+        } else {
+          const prog = beanPhaseT / BEAN_PHASE_DUR[beanPhase];
+          beanBubbleAlpha = prog < 0.15 ? prog / 0.15 : prog > 0.8 ? (1 - prog) / 0.2 : 1.0;
+        }
+        beanWaveFT += dt;
+        if (beanWaveFT > 260) { beanWaveArm = (beanWaveArm + 1) % 2; beanWaveFT = 0; }
+
+        // Bird + poo update
+        updateBird(dt);
+        // Caine + Pom update
+        updateCaine(dt);
+        updatePom(dt);
+
+        // ── DRAW ──────────────────────────────────────────────────────────────
+
+        // Sky gradient (theme-aware)
+        const activeSky = SKY_THEMES[activeLevel.skyColor] || SKY_THEMES[0];
+        const skyGrad = c.createLinearGradient(0, 0, 0, FLOOR);
+        skyGrad.addColorStop(0,   activeSky.top);
+        skyGrad.addColorStop(0.6, activeSky.mid);
+        skyGrad.addColorStop(1,   activeSky.bot);
+        c.fillStyle = skyGrad;
+        c.fillRect(0, 0, cv.width, cv.height);
+
+        // Slowly drifting clouds
+        const cd = (now * 0.008) % cv.width;
+        drawCloud(((120 + cd) % (cv.width + 160)) - 80, 55, 7, 0.92);
+        drawCloud(((340 + cd * 0.6) % (cv.width + 160)) - 80, 38, 9, 0.85);
+        drawCloud(((600 + cd * 0.8) % (cv.width + 160)) - 80, 70, 6, 0.80);
+        drawCloud(((820 + cd * 0.5) % (cv.width + 160)) - 80, 45, 8, 0.88);
+
+        // Grass fills everything below the floor line
+        c.fillStyle = "#6DBF5A";
+        c.fillRect(0, FLOOR, cv.width, cv.height);
+        // Mid-tone stripe
+        c.fillStyle = "#58B048";
+        c.fillRect(0, FLOOR + 6, cv.width, 8);
+        // Darker edge line at very top of grass
+        c.fillStyle = "#4A9E38";
+        c.fillRect(0, FLOOR, cv.width, 6);
+
+        sun(SUN_X, SUN_Y, now);
+
+        // Fridge + cold air + cat
+        shad(FRG_L + FRG_W / 2, FLOOR + 5, FRG_W * 0.44);
+        spr(FP, DOOR, DOOR_L, DOOR_T, false);
+        spr(FP, FRIDGE, FRG_L, FRG_T, false);
+        pts(FRG_L + SC, FRG_T + 7 * SC, dt);
+        const cb = Math.round(Math.sin(now * 0.0006) * 1);
+        spr(CP, CAT, CAT_X, CAT_Y + cb, false);
+        zzz(CAT_X + 6, CAT_Y + cb, now);
+
+        // MC
+        shad(MC_X + CW / 2, FLOOR + 5, CW * 0.4);
+        const mcBob = mcPet ? Math.round(Math.sin(now * 0.006) * 2) : Math.round(Math.sin(now * 0.001) * 1);
+        spr(MP, mcPet && mcFr === 1 ? MCP : MCI, MC_X, MC_Y + mcBob, false);
+
+        // Arthur
+        shad(AM_X + CW / 2, FLOOR + 5, CW * 0.4);
+        const amBob = amPet ? Math.round(Math.sin(now * 0.006) * 2) : Math.round(Math.sin(now * 0.001) * 1);
+        spr(AP, AMI, AM_X, AM_Y + amBob, false);
+
+        // ── Mr. Bean ──────────────────────────────────────────────────────────
+        shad(BN_X + BN_W / 2, FLOOR + 5, BN_W * 0.38);
+        const beanBob = Math.round(Math.sin(now * 0.0011 + 0.8) * 1.5);
+        let beanSprite = BNI;
+        if (beanPhase === 1) beanSprite = BNS;
+        else if (beanPhase === 2) beanSprite = (beanWaveArm === 0) ? BNW : BNI;
+        spr(BP, beanSprite, BN_X, BN_Y + beanBob, false);
+
+        // Teddy — always drawn to Bean's upper-right (held in right hand)
+        // In idle/surprised: held low at side; in wave: held high
+        const teddyOffX = BN_W - TS;      // right edge of Bean
+        const teddyOffY = beanPhase === 2
+          ? -TS * 4                        // raised high when waving
+          : BN_H * 0.35;                  // mid-height at side otherwise
+        // slight bob on Teddy matching Bean, plus extra wave bounce
+        const teddyBounce = beanPhase === 2
+          ? Math.round(Math.sin(now * 0.008) * 4)
+          : 0;
+        spr(TEDDY_PAL, TEDDY, BN_X + teddyOffX, BN_Y + beanBob + teddyOffY + teddyBounce, false, TS);
+
+        // Bubble
+        beanBubble(BN_X + BN_W / 2, BN_Y + beanBob, beanBubbleTxt, beanBubbleAlpha);
+
+        // Dog (always front)
+        const dx = Math.round(dogX), dy = Math.round(FLOOR - DOG_H + bob - jumpY), dcx = dx + DOG_W / 2;
+        shad(dcx, FLOOR + 5, DOG_W * 0.38, Math.max(0.3, 1 - jumpY / 40));
+        spr(DP, walking ? (frame === 0 ? WALK_A : WALK_B) : (frame === 0 ? IDLE_A : IDLE_B), dx, dy, flip);
+        if (woofV) woof(dcx, dy, woofV);
+        if (petting) {
+          const ht = stateT * 0.001, ha = Math.min(1, stateT / 300) * (0.7 + 0.3 * Math.sin(ht * 4));
+          heart(dcx, Math.round(dy - 32 - Math.sin(ht * 2) * 6), ha, 3);
+        }
+
+        // Poo splats (persistent, on top of sprites)
+        for (const s of splats) drawSplat(s.x, s.y);
+
+        // Caine's placed items
+        drawPlaced();
+
+        // Falling poo drips + bird (drawn last so bird is always on top)
+        updatePooDrips(dt);
+        const BSCALE = 10;
+        spr(BIRD_PAL, birdFr === 0 ? BIRD_A : BIRD_B,
+            Math.round(birdX) - 45, Math.round(birdY) - 30, birdDir < 0, BSCALE);
+
+        // Caine on top of everything
+        drawPom();
+        drawCaine(now);
+        drawChatBubble(now);
+
+        if (sceneRunning) requestAnimationFrame(loop);
+      }
+      let sceneRunning = true;
+      requestAnimationFrame(loop);
+
+      // ══════════════════════════════════════════════════════════════════════════
+      // ── TORNADO DODGE GAME — self-contained loop, takes over canvas ───────────
+      // ══════════════════════════════════════════════════════════════════════════
+
+      const GAME_CHARS = [
+        { name: "Dog",          pal: DP,        spA: IDLE_A,   spB: IDLE_B,   w: 18, h: 13, sc: SC },
+        { name: "Master Chief", pal: MP,        spA: MCI,      spB: MCI,      w: 14, h: 20, sc: SC },
+        { name: "Arthur",       pal: AP,        spA: AMI,      spB: AMI,      w: 14, h: 20, sc: SC },
+        { name: "Mr. Bean",     pal: BP,        spA: BNI,      spB: BNS,      w: 16, h: 22, sc: SC },
+        { name: "Caine",        pal: CAINE_PAL, spA: CAINE_A,  spB: CAINE_B,  w: 12, h: 18, sc: 5  },
+      ];
+
+      let gMode = "off"; // "off" | "select" | "playing" | "dead" | "editor"
+      let gChar = 0;
+      let plX = 0, plY = 0, plVX = 0, plVY = 0;
+      let plFr = 0, plFT = 0, plInv = 0, plLives = 3;
+      let gScore = 0, gScoreT = 0, gT = 0;
+      const tornadoes = [];
+      let tSpawnT = 0;
+      const keys = {};
+      window.addEventListener("keydown", e => {
+        keys[e.key] = true;
+        if (e.key === "Escape") exitGame();
+      });
+      window.addEventListener("keyup", e => { keys[e.key] = false; });
+
+      let touchDX = 0, touchDY = 0, touchSX = 0, touchSY = 0, touching = false;
+      cv.addEventListener("touchstart", e => {
+        if (gMode !== "playing") return;
+        e.preventDefault(); touching = true;
+        touchSX = e.touches[0].clientX; touchSY = e.touches[0].clientY;
+      }, { passive: false });
+      cv.addEventListener("touchmove", e => {
+        if (gMode !== "playing") return;
+        e.preventDefault();
+        touchDX = e.touches[0].clientX - touchSX;
+        touchDY = e.touches[0].clientY - touchSY;
+      }, { passive: false });
+      cv.addEventListener("touchend", () => { touching = false; touchDX = 0; touchDY = 0; });
+
+      // ── Level config — all gameplay settings in one object ────────────────────
+      const DEFAULT_LEVEL = {
+        name: "My Level",
+        tornadoSpeed: 2,    // 1=slow 2=normal 3=fast 4=chaos
+        tornadoSize:  2,    // 1=small 2=normal 3=huge
+        spawnRate:    2,    // 1=rare 2=normal 3=frequent 4=swarm
+        lives:        3,    // 1-5
+        skyColor:     0,    // 0=day 1=sunset 2=night 3=storm
+        obstacles:    [],   // [{x,y,w,h}] as % of canvas
+      };
+      let activeLevel = { ...DEFAULT_LEVEL };
+
+      // ── Level encode / decode (base64 JSON) ───────────────────────────────────
+      function encodeLevel(lvl) {
+        return btoa(JSON.stringify(lvl));
+      }
+      function decodeLevel(code) {
+        try {
+          const obj = JSON.parse(atob(code));
+          // Validate keys
+          return { ...DEFAULT_LEVEL, ...obj };
+        } catch { return null; }
+      }
+
+      // Check URL for a level code on load
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlCode = urlParams.get("level");
+      if (urlCode) {
+        const loaded = decodeLevel(urlCode);
+        if (loaded) activeLevel = loaded;
+      }
+
+      function exitGame() {
+        gMode = "off";
+        sceneRunning = true;
+        lastT = performance.now();
+        requestAnimationFrame(loop);
+        gameBtn.textContent = "🌪️ PLAY GAME";
+        cv.style.cursor = "default";
+      }
+
+      function startGame() {
+        const L = getLayout();
+        const ch = GAME_CHARS[gChar];
+        plX = cv.width / 2 - ch.w * ch.sc / 2;
+        plY = L.FLOOR - ch.h * ch.sc - 10;
+        plVX = plVY = plFr = plFT = plInv = gScore = gScoreT = gT = tSpawnT = 0;
+        plLives = activeLevel.lives || 3;
+        tornadoes.length = 0;
+        gMode = "playing";
+      }
+
+      function spawnTornado() {
+        const L = getLayout();
+        const fromLeft = Math.random() < 0.5;
+        const speedMult = [0.5, 1.0, 1.7, 2.8][Math.max(0, Math.min(3, (activeLevel.tornadoSpeed||2) - 1))];
+        const sizeMult  = [0.6, 1.0, 1.5][Math.max(0, Math.min(2, (activeLevel.tornadoSize||2)  - 1))];
+        tornadoes.push({
+          x:   fromLeft ? -100 : cv.width + 100,
+          y:   L.FLOOR * 0.25 + Math.random() * L.FLOOR * 0.55,
+          dir: fromLeft ? 1 : -1,
+          spd: (160 + Math.random() * 160) * speedMult,
+          w:   (44 + Math.random() * 32) * sizeMult,
+          h:   (90 + Math.random() * 60) * sizeMult,
+          rot: 0,
+        });
+      }
+
+      function drawTornado(t, now) {
+        const L = getLayout();
+        t.rot += 0.07;
+        const tx = Math.round(t.x), ty = Math.round(t.y);
+        const layers = 8;
+        for (let i = 0; i < layers; i++) {
+          const prog = i / (layers - 1);
+          const w = Math.max(4, t.w * (1 - prog * 0.88));
+          const h = t.h / layers;
+          const ox = Math.sin(t.rot + prog * 2.8) * 14 * prog;
+          const grey = Math.round(200 - prog * 130);
+          c.save();
+          c.globalAlpha = 0.5 + 0.3 * Math.sin(now * 0.005 + i);
+          c.fillStyle = `rgb(${grey},${grey},${grey + 15})`;
+          c.beginPath();
+          c.ellipse(tx + ox, ty + i * h, w / 2, h * 0.75, 0, 0, Math.PI * 2);
+          c.fill();
+          c.restore();
+        }
+        // Debris
+        for (let d = 0; d < 6; d++) {
+          const ang = t.rot * 3.5 + d * (Math.PI * 2 / 6);
+          c.fillStyle = "#4A4040";
+          c.fillRect(tx + Math.cos(ang) * (t.w * 0.55), ty + t.h * 0.35 + Math.sin(ang * 0.8) * 12, 6, 6);
+        }
+        // Shadow
+        c.save(); c.globalAlpha = 0.15; c.fillStyle = "#222";
+        c.beginPath(); c.ellipse(tx, L.FLOOR + 3, t.w * 0.38, 7, 0, 0, Math.PI * 2); c.fill();
+        c.restore();
+      }
+
+      function pxBtn(label, bx, by, bw, bh, bg, fg) {
+        // Pixel-art style button
+        c.fillStyle = bg;
+        c.fillRect(bx, by, bw, bh);
+        // border
+        c.fillStyle = fg;
+        c.fillRect(bx, by, bw, 4);
+        c.fillRect(bx, by + bh - 4, bw, 4);
+        c.fillRect(bx, by, 4, bh);
+        c.fillRect(bx + bw - 4, by, 4, bh);
+        c.fillStyle = fg;
+        c.font = 'bold 18px "Courier New",monospace';
+        c.textAlign = "center"; c.textBaseline = "middle";
+        c.fillText(label, bx + bw / 2, by + bh / 2);
+        c.textBaseline = "alphabetic";
+      }
+
+      function drawFullSceneBg(now, dt) {
+        const L = getLayout();
+        // Sky
+        const sky = SKY_THEMES[activeLevel.skyColor] || SKY_THEMES[0];
+        const sg = c.createLinearGradient(0, 0, 0, L.FLOOR);
+        sg.addColorStop(0, sky.top); sg.addColorStop(0.6, sky.mid); sg.addColorStop(1, sky.bot);
+        c.fillStyle = sg; c.fillRect(0, 0, cv.width, cv.height);
+        // Clouds
+        const cd = (now * 0.008) % cv.width;
+        drawCloud(((120 + cd) % (cv.width + 160)) - 80, 55, 7, 0.92);
+        drawCloud(((340 + cd * 0.6) % (cv.width + 160)) - 80, 38, 9, 0.85);
+        drawCloud(((600 + cd * 0.8) % (cv.width + 160)) - 80, 70, 6, 0.80);
+        drawCloud(((820 + cd * 0.5) % (cv.width + 160)) - 80, 45, 8, 0.88);
+        // Sun
+        sun(L.SUN_X, L.SUN_Y, now);
+        // Fridge + cat
+        shad(L.FRG_L + FRG_W / 2, L.FLOOR + 5, FRG_W * 0.44);
+        spr(FP, DOOR, L.DOOR_L, L.DOOR_T, false);
+        spr(FP, FRIDGE, L.FRG_L, L.FRG_T, false);
+        pts(L.FRG_L + SC, L.FRG_T + 7 * SC, dt);
+        spr(CP, CAT, L.CAT_X, L.CAT_Y, false);
+        // Background characters (static, just for scenery)
+        spr(MP, MCI, L.MC_X, L.MC_Y, false);
+        spr(AP, AMI, L.AM_X, L.AM_Y, false);
+        spr(BP, BNI, L.BN_X, L.BN_Y, false);
+        // Grass
+        c.fillStyle = "#6DBF5A"; c.fillRect(0, L.FLOOR, cv.width, cv.height);
+        c.fillStyle = "#58B048"; c.fillRect(0, L.FLOOR + 6, cv.width, 8);
+        c.fillStyle = "#4A9E38"; c.fillRect(0, L.FLOOR, cv.width, 6);
+      }
+
+      // ── Click handlers for select / dead screens ──────────────────────────────
+      let gClickHandlers = [];
+      function registerClick(bx, by, bw, bh, cb) { gClickHandlers.push({ bx, by, bw, bh, cb }); }
+      cv.addEventListener("click", e => {
+        if (gMode !== "select" && gMode !== "dead") return;
+        const rect = cv.getBoundingClientRect();
+        const mx = (e.clientX - rect.left) * (cv.width / rect.width);
+        const my = (e.clientY - rect.top) * (cv.height / rect.height);
+        for (const h of gClickHandlers) {
+          if (mx >= h.bx && mx <= h.bx + h.bw && my >= h.by && my <= h.by + h.bh) { h.cb(); break; }
+        }
+      });
+
+      // ── Main game RAF loop ─────────────────────────────────────────────────────
+      let gLastT = 0;
+      function gameLoop(now) {
+        if (gMode === "off") return;
+        const dt = Math.min(now - gLastT, 50);
+        gLastT = now;
+        gClickHandlers = [];
+        const L = getLayout();
+
+        if (gMode === "select") {
+          // ── Character select ────────────────────────────────────────────────
+          drawFullSceneBg(now, dt);
+          // Dark overlay
+          c.fillStyle = "rgba(0,0,0,0.70)"; c.fillRect(0, 0, cv.width, cv.height);
+
+          c.textAlign = "center";
+          c.fillStyle = "#FFE030"; c.strokeStyle = "#080808"; c.lineWidth = 5;
+          c.font = 'bold 40px "Courier New",monospace';
+          c.strokeText("CHOOSE YOUR CHARACTER", cv.width / 2, 90);
+          c.fillText("CHOOSE YOUR CHARACTER", cv.width / 2, 90);
+
+          const cardW = 150, cardH = 210, gap = 18;
+          const totalW = GAME_CHARS.length * cardW + (GAME_CHARS.length - 1) * gap;
+          const startX = cv.width / 2 - totalW / 2;
+          const startY = cv.height / 2 - cardH / 2 - 10;
+
+          GAME_CHARS.forEach((ch, i) => {
+            const cx = startX + i * (cardW + gap);
+            const sel = i === gChar;
+            // Card
+            c.fillStyle = sel ? "#FFE030" : "#0A0A1A";
+            c.strokeStyle = sel ? "#FF8800" : "#4444AA";
+            c.lineWidth = sel ? 5 : 2;
+            c.beginPath(); c.roundRect(cx, startY, cardW, cardH, 10); c.fill(); c.stroke();
+            // Sprite — centred in top half of card
+            const sw = ch.w * ch.sc, sh = ch.h * ch.sc;
+            const sprX = Math.round(cx + cardW / 2 - sw / 2);
+            const sprY = Math.round(startY + 16 + (100 - sh) / 2);
+            spr(ch.pal, ch.spA, sprX, sprY, false, ch.sc);
+            // Name
+            c.fillStyle = sel ? "#1A1000" : "#CCCCEE";
+            c.font = `bold ${sel ? 15 : 13}px "Courier New",monospace`;
+            c.textAlign = "center";
+            c.fillText(ch.name, cx + cardW / 2, startY + cardH - 40);
+            // "PLAY" on selected
+            if (sel) {
+              pxBtn("▶ PLAY", cx + 15, startY + cardH - 28, cardW - 30, 24, "#FF8800", "#FFF");
+              registerClick(cx + 15, startY + cardH - 28, cardW - 30, 24, startGame);
+            }
+            // Click to select
+            registerClick(cx, startY, cardW, cardH - 30, () => { gChar = i; });
+          });
+
+          // Nav hint
+          c.fillStyle = "#8888AA"; c.font = '14px "Courier New",monospace'; c.textAlign = "center";
+          c.fillText("← → to browse   click card to select   click PLAY or press ENTER to start", cv.width / 2, startY + cardH + 36);
+
+          // Keyboard nav
+          if (keys["ArrowLeft"] && !keys["__l"]) gChar = (gChar - 1 + GAME_CHARS.length) % GAME_CHARS.length;
+          if (keys["ArrowRight"] && !keys["__r"]) gChar = (gChar + 1) % GAME_CHARS.length;
+          keys["__l"] = keys["ArrowLeft"]; keys["__r"] = keys["ArrowRight"];
+          if (keys["Enter"]) startGame();
+
+        } else if (gMode === "playing") {
+          // ── Update ──────────────────────────────────────────────────────────
+          gT += dt; gScoreT += dt;
+          if (gScoreT > 500) { gScore++; gScoreT = 0; }
+          const ch = GAME_CHARS[gChar];
+
+          // Movement
+          const spd = 300, fr2 = 0.80;
+          let ix = 0, iy = 0;
+          if (keys["ArrowLeft"]  || keys["a"] || keys["A"]) ix -= 1;
+          if (keys["ArrowRight"] || keys["d"] || keys["D"]) ix += 1;
+          if (keys["ArrowUp"]    || keys["w"] || keys["W"]) iy -= 1;
+          if (keys["ArrowDown"]  || keys["s"] || keys["S"]) iy += 1;
+          if (touching) {
+            if (Math.abs(touchDX) > 8) ix = Math.sign(touchDX);
+            if (Math.abs(touchDY) > 8) iy = Math.sign(touchDY);
+          }
+          plVX = plVX * fr2 + ix * spd * (1 - fr2);
+          plVY = plVY * fr2 + iy * spd * (1 - fr2);
+          plX += plVX * dt / 1000;
+          plY += plVY * dt / 1000;
+          const pw = ch.w * ch.sc, ph = ch.h * ch.sc;
+          plX = Math.max(0, Math.min(cv.width - pw, plX));
+          plY = Math.max(0, Math.min(L.FLOOR - ph, plY));
+          plFT += dt;
+          if (plFT > 150) { plFr = (plFr + 1) % 2; plFT = 0; }
+
+          // Tornado spawning — gets faster over time
+          tSpawnT += dt;
+          const baseInterval = [2800, 2200, 1600, 1000][Math.max(0, Math.min(3, (activeLevel.spawnRate||2) - 1))];
+          const interval = Math.max(700, baseInterval - gT * 0.09);
+          if (tSpawnT > interval) { spawnTornado(); tSpawnT = 0; }
+          for (let i = tornadoes.length - 1; i >= 0; i--) {
+            tornadoes[i].x += tornadoes[i].dir * tornadoes[i].spd * dt / 1000;
+            if (tornadoes[i].x < -200 || tornadoes[i].x > cv.width + 200) tornadoes.splice(i, 1);
+          }
+
+          // Collision
+          if (plInv > 0) { plInv -= dt; }
+          else {
+            for (const t of tornadoes) {
+              const hitR = t.w * 0.4;
+              const pcx = plX + pw / 2, pcy = plY + ph / 2;
+              if (Math.hypot(pcx - t.x, pcy - (t.y + t.h * 0.4)) < hitR + 16) {
+                plLives--;
+                plInv = 1600;
+                plVX = (pcx - t.x) * 4;
+                plVY = -250;
+                if (plLives <= 0) { gMode = "dead"; break; }
+              }
+            }
+          }
+
+          // ── Draw ────────────────────────────────────────────────────────────
+          drawFullSceneBg(now, dt);
+          for (const t of tornadoes) drawTornado(t, now);
+
+          // Player (flicker when invincible)
+          if (plInv <= 0 || Math.floor(plInv / 110) % 2 === 0) {
+            spr(ch.pal, plFr === 0 ? ch.spA : ch.spB,
+                Math.round(plX), Math.round(plY), plVX < -10, ch.sc);
+          }
+
+          // HUD lives
+          c.font = 'bold 28px "Courier New",monospace'; c.textAlign = "left";
+          for (let i = 0; i < plLives; i++) {
+            c.fillStyle = "#FF3333"; c.strokeStyle = "#000"; c.lineWidth = 3;
+            // Pixel heart
+            const hx = 16 + i * 36, hy = 16;
+            [[1,0],[2,0],[4,0],[5,0],[0,1],[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],
+             [0,2],[1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[1,3],[2,3],[3,3],[4,3],[5,3],
+             [2,4],[3,4],[4,4],[3,5]].forEach(([px,py]) => c.fillRect(hx+px*4, hy+py*4, 4, 4));
+          }
+          // HUD score
+          c.fillStyle = "#FFF"; c.strokeStyle = "#000"; c.lineWidth = 3;
+          c.font = 'bold 24px "Courier New",monospace'; c.textAlign = "right";
+          c.strokeText(`SCORE: ${gScore}`, cv.width - 16, 36);
+          c.fillText(`SCORE: ${gScore}`, cv.width - 16, 36);
+          // Speed warning
+          const curInterval = Math.max(700, 2200 - gT * 0.09);
+          if (curInterval < 1200) {
+            const wa = 0.6 + 0.4 * Math.sin(now * 0.009);
+            c.save(); c.globalAlpha = wa;
+            c.fillStyle = "#FF5020"; c.font = 'bold 18px "Courier New",monospace'; c.textAlign = "center";
+            c.fillText("⚡ STORM INTENSIFYING ⚡", cv.width / 2, 36);
+            c.restore();
+          }
+          // Controls hint (first 3s)
+          if (gT < 3000) {
+            c.save(); c.globalAlpha = 1 - gT / 3000;
+            c.fillStyle = "#FFF"; c.font = '13px "Courier New",monospace'; c.textAlign = "center";
+            c.fillText("Arrow keys / WASD to move — dodge the tornadoes!", cv.width / 2, cv.height - 24);
+            c.restore();
+          }
+
+        } else if (gMode === "dead") {
+          // ── Game over ────────────────────────────────────────────────────────
+          drawFullSceneBg(now, dt);
+          c.fillStyle = "rgba(0,0,0,0.75)"; c.fillRect(0, 0, cv.width, cv.height);
+
+          c.textAlign = "center";
+          c.fillStyle = "#FF3333"; c.strokeStyle = "#000"; c.lineWidth = 6;
+          c.font = 'bold 60px "Courier New",monospace';
+          c.strokeText("GAME OVER", cv.width / 2, cv.height / 2 - 70);
+          c.fillText("GAME OVER", cv.width / 2, cv.height / 2 - 70);
+
+          c.fillStyle = "#FFE030"; c.lineWidth = 3;
+          c.font = 'bold 32px "Courier New",monospace';
+          c.strokeText(`SCORE: ${gScore}`, cv.width / 2, cv.height / 2 - 10);
+          c.fillText(`SCORE: ${gScore}`, cv.width / 2, cv.height / 2 - 10);
+
+          pxBtn("▶ PLAY AGAIN", cv.width/2 - 190, cv.height/2 + 30, 180, 52, "#226622", "#88FF88");
+          pxBtn("✖ BACK TO SCENE", cv.width/2 + 10, cv.height/2 + 30, 200, 52, "#222266", "#8888FF");
+          registerClick(cv.width/2 - 190, cv.height/2 + 30, 180, 52, startGame);
+          registerClick(cv.width/2 + 10, cv.height/2 + 30, 200, 52, exitGame);
+        }
+
+        requestAnimationFrame(gameLoop);
+      }
+
+      // ── PLAY GAME button ───────────────────────────────────────────────────────
+      // ── Animated tornado button — letters swoop away on hover ────────────────
+      const btnLabel = "🌪️ PLAY GAME";
+      const btnExit  = "✖ EXIT";
+
+      // Inject keyframe CSS
+      const btnStyle = document.createElement("style");
+      btnStyle.textContent = `
+        #gameBtn {
+          position: fixed; bottom: 20px; right: 20px;
+          padding: 12px 24px;
+          font-family: 'Courier New', monospace; font-weight: bold; font-size: 16px;
+          background: #0A0A1A; border: 3px solid #FFE030; border-radius: 10px;
+          cursor: pointer; z-index: 10;
+          box-shadow: 0 4px 18px rgba(0,0,0,0.6);
+          overflow: hidden;
+          min-width: 160px; min-height: 48px;
+          display: flex; align-items: center; justify-content: center;
+          user-select: none;
+        }
+        #gameBtn .btn-inner {
+          position: relative;
+          display: flex; gap: 0px;
+          align-items: center; justify-content: center;
+        }
+        #gameBtn .btn-char {
+          display: inline-block;
+          color: #FFE030;
+          transition: none;
+          position: relative;
+        }
+        @keyframes swoopOut {
+          0%   { transform: translate(0,0) rotate(0deg); opacity: 1; }
+          100% { transform: translate(var(--tx), var(--ty)) rotate(var(--tr)); opacity: 0; }
+        }
+        @keyframes swoopIn {
+          0%   { transform: translate(var(--tx), var(--ty)) rotate(var(--tr)); opacity: 0; }
+          100% { transform: translate(0,0) rotate(0deg); opacity: 1; }
+        }
+        #gameBtn:hover .btn-char { animation: swoopOut 0.38s forwards; }
+        #gameBtn.exiting .btn-char { animation: swoopIn 0.38s forwards; }
+        @keyframes btnPulse {
+          0%, 100% { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 0px #FFE030; }
+          50%       { box-shadow: 0 4px 18px rgba(0,0,0,0.6), 0 0 18px #FFE030; }
+        }
+        #gameBtn { animation: btnPulse 2.4s ease-in-out infinite; }
+      `;
+      document.head.appendChild(btnStyle);
+
+      const gameBtn = document.createElement("button");
+      gameBtn.id = "gameBtn";
+
+      function setBtnLetters(text) {
+        gameBtn.innerHTML = "";
+        const inner = document.createElement("span");
+        inner.className = "btn-inner";
+        [...text].forEach((ch, i) => {
+          const span = document.createElement("span");
+          span.className = "btn-char";
+          span.textContent = ch;
+          // Each letter gets a random swoop direction
+          const angle = (Math.random() * 360) | 0;
+          const dist  = 40 + (Math.random() * 60) | 0;
+          const rot   = ((Math.random() - 0.5) * 360) | 0;
+          const delay = (i * 28) | 0;
+          span.style.setProperty("--tx", `${Math.round(Math.cos(angle)*dist)}px`);
+          span.style.setProperty("--ty", `${Math.round(Math.sin(angle)*dist)}px`);
+          span.style.setProperty("--tr", `${rot}deg`);
+          span.style.animationDelay = `${delay}ms`;
+          inner.appendChild(span);
+        });
+        gameBtn.appendChild(inner);
+      }
+
+      setBtnLetters(btnLabel);
+
+      gameBtn.addEventListener("click", () => {
+        if (gMode === "off") {
+          gMode = "select";
+          sceneRunning = false;
+          gLastT = performance.now();
+          requestAnimationFrame(gameLoop);
+          // Swoop out old letters, swoop in new
+          gameBtn.classList.add("exiting");
+          setTimeout(() => {
+            setBtnLetters(btnExit);
+            gameBtn.classList.remove("exiting");
+          }, 400);
+        } else {
+          exitGame();
+          gameBtn.classList.add("exiting");
+          setTimeout(() => {
+            setBtnLetters(btnLabel);
+            gameBtn.classList.remove("exiting");
+          }, 400);
+        }
+      });
+
+      document.body.appendChild(gameBtn);
+
+      // ── Expose API for Creator Hub ────────────────────────────────────────────
+      window.pixelSceneAPI = {
+        GAME_CHARS,
+        activeLevel,
+        setLevel(lvl) {
+          Object.assign(activeLevel, {
+            skyColor:     lvl.skyColor     ?? activeLevel.skyColor,
+            tornadoSpeed: lvl.tornadoSpeed ?? activeLevel.tornadoSpeed,
+            tornadoSize:  lvl.tornadoSize  ?? activeLevel.tornadoSize,
+            spawnRate:    lvl.spawnRate    ?? activeLevel.spawnRate,
+            lives:        lvl.lives        ?? activeLevel.lives,
+            name:         lvl.name        ?? activeLevel.name,
+          });
+        },
+        addChar(ch) { GAME_CHARS.push(ch); },
+        getGameMode: () => gMode,
+        toggleGame:  () => { gameBtn.click(); },
+      };
+
+      // Hide old button — logic stays, visuals replaced by hub menu below
+      gameBtn.style.cssText += 'position:fixed;bottom:-400px;left:-400px;pointer-events:none;opacity:0;';
+    })();
+    </script>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+    <!-- ── CREATOR HUB ────────────────────────────────────────────────────── -->
+    <!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+    <style id="hub-css">
+      /* ── UGG-style palette ──────────────────────────────────────────────────── */
+      /* parchment:#F5F0E6  white:#FFF  dark:#2C2418  green:#5C7A48  mid:#8A7A6A */
+
+      /* ── Creator Hub Overlay ────────────────────────────────────────────────── */
+      #creatorHub {
+        display: none; position: fixed; inset: 0;
+        background: rgba(44,36,24,0.72);
+        backdrop-filter: blur(4px);
+        z-index: 999;
+        align-items: center; justify-content: center;
+        font-family: 'Georgia', serif;
+      }
+      #hub-box {
+        background: #F5F0E6;
+        border: 2.5px solid #2C2418; border-radius: 6px;
+        width: min(900px, 97vw); max-height: 94vh;
+        display: flex; flex-direction: column; overflow: hidden;
+        box-shadow: 8px 8px 0 #2C2418;
+      }
+      #hub-hdr {
+        background: #EDE8DC; padding: 13px 20px;
+        display: flex; align-items: center; gap: 14px;
+        border-bottom: 2px solid #2C2418;
+      }
+      #hub-hdr .hdr-title {
+        color: #2C2418; font-weight: bold; font-size: 18px; flex: 1;
+        letter-spacing: 1px; font-family: 'Georgia', serif;
+      }
+      #hub-notif {
+        color: #5C7A48; font-size: 13px; font-weight: bold;
+        opacity: 0; transition: opacity .3s, transform .3s;
+        transform: translateY(-6px); min-width: 180px; text-align: center;
+        font-family: system-ui, sans-serif;
+      }
+      #hub-close {
+        background: #F5F0E6; border: 2px solid #2C2418; color: #2C2418;
+        font-family: 'Georgia', serif; font-weight: bold; font-size: 13px;
+        padding: 5px 14px; cursor: pointer; border-radius: 3px;
+        box-shadow: 2px 2px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s, background .1s;
+      }
+      #hub-close:hover { background: #EDE8DC; }
+      #hub-close:active { box-shadow: none; transform: translate(2px,2px); }
+
+      /* ── Tabs ───────────────────────────────────────────────────────────────── */
+      #hub-tabs {
+        display: flex; background: #F5F0E6;
+        border-bottom: 2px solid #2C2418;
+      }
+      .htab-btn {
+        flex: 1; padding: 12px 6px; background: transparent; border: none;
+        color: #8A7A6A; cursor: pointer; font-family: 'Georgia', serif;
+        font-size: 14px; font-weight: bold;
+        border-bottom: 3px solid transparent; transition: all .2s;
+      }
+      .htab-btn:hover { color: #2C2418; }
+      .htab-btn.active {
+        color: #2C2418; border-bottom-color: #5C7A48; background: #EDE8DC;
+      }
+      .htab-body { flex: 1; overflow: hidden; background: #F5F0E6; }
+      .htp { display: none; height: 100%; overflow-y: auto; background: #F5F0E6; }
+      .htp.active { display: flex; gap: 20px; padding: 20px; }
+
+      /* ── Shared form pieces ─────────────────────────────────────────────────── */
+      .tp-left  { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; gap: 16px; }
+      .tp-right { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+      .tp-center{ flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+      .fld { display: flex; flex-direction: column; gap: 6px; }
+      .fld label {
+        color: #5C7A48; font-size: 11px; font-weight: bold;
+        letter-spacing: 1.5px; text-transform: uppercase;
+        font-family: system-ui, sans-serif;
+      }
+      .fld input[type="text"] {
+        background: #fff; border: 2px solid #2C2418; color: #2C2418;
+        font-family: 'Georgia', serif; font-size: 13px;
+        padding: 7px 11px; border-radius: 3px; outline: none;
+        box-shadow: 2px 2px 0 #2C2418;
+      }
+      .fld input[type="text"]:focus { background: #FFFDF8; }
+      .val-display { color: #5C7A48; font-family: system-ui, sans-serif; }
+      .csl { width: 100%; accent-color: #5C7A48; cursor: pointer; }
+      .sl-lbl {
+        display: flex; justify-content: space-between;
+        font-size: 10px; color: #8A7A6A; margin-top: -2px;
+        font-family: system-ui, sans-serif; letter-spacing: .5px;
+      }
+      .preview-lbl {
+        color: #8A7A6A; font-size: 11px; letter-spacing: 1px;
+        font-family: system-ui, sans-serif; text-transform: uppercase;
+      }
+
+      /* ── Sky selector ───────────────────────────────────────────────────────── */
+      #sky-sel { display: flex; gap: 6px; flex-wrap: wrap; }
+      .sky-opt {
+        flex: 1; min-width: 70px; padding: 10px 4px;
+        border: 2px solid #2C2418; border-radius: 3px;
+        cursor: pointer; text-align: center;
+        font-size: 11px; color: #fff; font-family: system-ui, sans-serif;
+        font-weight: bold; text-shadow: 0 1px 3px rgba(0,0,0,.8);
+        box-shadow: 2px 2px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s;
+      }
+      .sky-opt:hover { box-shadow: 1px 1px 0 #2C2418; transform: translate(1px,1px); }
+      .sky-opt.selected {
+        box-shadow: none; transform: translate(2px,2px);
+        outline: 3px solid #5C7A48; outline-offset: 2px;
+      }
+
+      /* ── Buttons ────────────────────────────────────────────────────────────── */
+      .cbtn {
+        display: block; width: 100%; padding: 9px 16px; margin: 0;
+        font-family: 'Georgia', serif; font-weight: bold; font-size: 13px;
+        cursor: pointer; border-radius: 3px; border: 2px solid #2C2418;
+        color: #2C2418; background: #F5F0E6;
+        box-shadow: 3px 3px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s, background .1s;
+      }
+      .cbtn:hover  { background: #EDE8DC; }
+      .cbtn:active { box-shadow: none; transform: translate(3px,3px); }
+      .cbtn.primary { background: #5C7A48; color: #F5F0E6; }
+      .cbtn.primary:hover { background: #4E6A3C; }
+      .cbtn.green   { background: #5C7A48; color: #F5F0E6; }
+      .cbtn.green:hover  { background: #4E6A3C; }
+      .cbtn.danger  { background: #8A3A2A; color: #F5F0E6; }
+      .cbtn.danger:hover { background: #7A2A1A; }
+      .cbtn.inline  { display: inline-block; width: auto; padding: 6px 12px; font-size: 12px; }
+
+      /* ── Creature palette ───────────────────────────────────────────────────── */
+      #pal-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+      .p-swatch {
+        width: 28px; height: 28px; border: 2px solid #2C2418; border-radius: 3px;
+        cursor: pointer; box-shadow: 2px 2px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s;
+      }
+      .p-swatch:hover { transform: translate(-1px,-1px); box-shadow: 3px 3px 0 #2C2418; }
+      .p-swatch.selected {
+        transform: translate(2px,2px); box-shadow: none;
+        outline: 3px solid #5C7A48; outline-offset: 2px;
+      }
+      .p-swatch.transparent {
+        background-image: repeating-conic-gradient(#C8C0B0 0% 25%,#F5F0E6 0% 50%);
+        background-size: 10px 10px;
+      }
+      .tool-row { display: flex; gap: 6px; }
+      .tool-btn {
+        flex: 1; padding: 9px; background: #F5F0E6; border: 2px solid #2C2418;
+        color: #2C2418; cursor: pointer; border-radius: 3px;
+        font-family: 'Georgia', serif; font-size: 12px; font-weight: bold;
+        box-shadow: 2px 2px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s, background .1s;
+      }
+      .tool-btn:hover { background: #EDE8DC; }
+      .tool-btn.active {
+        background: #2C2418; color: #F5F0E6; box-shadow: none; transform: translate(2px,2px);
+      }
+
+      /* ── Gallery ────────────────────────────────────────────────────────────── */
+      .htp.gallery-tab { flex-direction: column; gap: 14px; }
+      .gal-header { display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+      .gal-subtabs { display: flex; gap: 8px; }
+      .gst {
+        padding: 8px 20px; background: #F5F0E6; border: 2px solid #2C2418;
+        color: #2C2418; cursor: pointer; border-radius: 3px;
+        font-family: 'Georgia', serif; font-weight: bold; font-size: 13px;
+        box-shadow: 3px 3px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s, background .1s;
+      }
+      .gst:hover { background: #EDE8DC; }
+      .gst.active { background: #2C2418; color: #F5F0E6; box-shadow: none; transform: translate(3px,3px); }
+      .import-row { display: flex; gap: 8px; align-items: center; }
+      .import-row input {
+        flex: 1; background: #fff; border: 2px solid #2C2418; color: #2C2418;
+        font-family: 'Georgia', serif; font-size: 12px;
+        padding: 8px 11px; border-radius: 3px; outline: none;
+        box-shadow: 2px 2px 0 #2C2418;
+      }
+      .import-row input:focus { background: #FFFDF8; }
+      .gal-grid {
+        flex: 1; overflow-y: auto; display: flex;
+        flex-wrap: wrap; gap: 14px; align-content: flex-start;
+      }
+      .g-card {
+        background: #fff; border: 2px solid #2C2418;
+        border-radius: 4px; padding: 12px; width: 168px;
+        flex-shrink: 0; position: relative;
+        box-shadow: 3px 3px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s;
+      }
+      .g-card:hover { box-shadow: 5px 5px 0 #2C2418; transform: translate(-1px,-1px); }
+      .g-card.top-card { background: #FFFDE8; border-color: #5C7A48; box-shadow: 3px 3px 0 #5C7A48; }
+      .top-badge {
+        position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
+        background: #5C7A48; color: #F5F0E6; font-size: 10px; font-weight: bold;
+        padding: 2px 10px; border-radius: 2px; white-space: nowrap;
+        font-family: system-ui, sans-serif; letter-spacing: 1px;
+        border: 1.5px solid #2C2418;
+      }
+      .g-sky-strip {
+        height: 44px; border-radius: 3px; margin-bottom: 10px;
+        display: flex; align-items: center; justify-content: center;
+        border: 1.5px solid #2C2418;
+      }
+      .g-sky-icon { color: #fff; font-size: 12px; font-weight: bold; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+      .g-crt-prev { display: flex; justify-content: center; margin-bottom: 10px; min-height: 48px; }
+      .g-title {
+        color: #2C2418; font-size: 13px; font-weight: bold; margin-bottom: 6px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        font-family: 'Georgia', serif;
+      }
+      .g-meta { color: #8A7A6A; font-size: 10px; margin-bottom: 8px; font-family: system-ui,sans-serif; }
+      .g-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+      .g-btn {
+        padding: 4px 7px; background: #F5F0E6; border: 1.5px solid #2C2418;
+        color: #2C2418; cursor: pointer; border-radius: 2px; font-size: 11px;
+        font-family: system-ui, sans-serif; font-weight: bold;
+        box-shadow: 1.5px 1.5px 0 #2C2418; white-space: nowrap;
+        transition: box-shadow .1s, transform .1s, background .1s;
+      }
+      .g-btn:hover  { background: #EDE8DC; }
+      .g-btn:active { box-shadow: none; transform: translate(1.5px,1.5px); }
+      .g-btn.play   { background: #5C7A48; color: #F5F0E6; }
+      .g-btn.play:hover   { background: #4E6A3C; }
+      .g-btn.danger:hover { background: #8A3A2A; color: #F5F0E6; }
+      .lick-btn {
+        padding: 4px 8px; background: #F5F0E6; border: 1.5px solid #2C2418;
+        color: #2C2418; cursor: pointer; border-radius: 2px; font-size: 11px;
+        font-family: system-ui, sans-serif; font-weight: bold;
+        box-shadow: 1.5px 1.5px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s, background .1s;
+      }
+      .lick-btn:hover { background: #F0D8E8; border-color: #8A3A6A; color: #8A3A6A; }
+      .lick-btn.licked { background: #8A3A6A; color: #F5F0E6; box-shadow: none; transform: translate(1.5px,1.5px); }
+      .empty-msg {
+        color: #8A7A6A; font-size: 13px; padding: 30px;
+        text-align: center; width: 100%; line-height: 2;
+        font-family: 'Georgia', serif;
+      }
+
+      /* ── Scene Hub — branching slide-out menu ───────────────────────────────── */
+      #scene-hub {
+        position: fixed; bottom: 30px; left: 50%;
+        transform: translateX(-50%);
+        z-index: 50;
+        display: flex; align-items: center; justify-content: center;
+        width: 64px;
+      }
+      #hub-toggle {
+        position: relative; z-index: 1;
+        width: 64px; height: 64px; border-radius: 50%;
+        background: #2C2418; border: 3px solid #2C2418; color: #F5F0E6;
+        font-size: 30px; cursor: pointer; user-select: none;
+        box-shadow: 0 5px 0 rgba(0,0,0,.35), 0 8px 22px rgba(0,0,0,.3);
+        transition: transform .15s, box-shadow .15s, background .15s;
+        flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+      }
+      #hub-toggle:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 0 rgba(0,0,0,.35), 0 12px 28px rgba(0,0,0,.3);
+      }
+      #hub-toggle:active {
+        transform: translateY(4px);
+        box-shadow: 0 1px 0 rgba(0,0,0,.35), 0 3px 10px rgba(0,0,0,.2);
+      }
+      #scene-hub.open #hub-toggle {
+        background: #5C7A48;
+      }
+      .hub-arm {
+        position: absolute; bottom: 0;
+        opacity: 0; pointer-events: none;
+        transition: transform .44s cubic-bezier(.34,1.56,.64,1), opacity .22s ease;
+      }
+      .hub-arm.arm-left  { right: calc(100% + 12px); transform: translateX(90px); }
+      .hub-arm.arm-right { left:  calc(100% + 12px); transform: translateX(-90px); }
+      #scene-hub.open .hub-arm { opacity: 1; pointer-events: all; transform: translateX(0); }
+      #scene-hub.open .arm-left  { transition-delay: .04s; }
+      #scene-hub.open .arm-right { transition-delay: .0s; }
+      .hub-item {
+        background: #F5F0E6; border: 2.5px solid #2C2418; border-radius: 5px;
+        padding: 13px 24px; cursor: pointer; white-space: nowrap;
+        box-shadow: 4px 4px 0 #2C2418;
+        transition: box-shadow .1s, transform .1s, background .1s;
+        user-select: none;
+        display: flex; flex-direction: column; align-items: center; gap: 3px;
+      }
+      .hub-item:hover  { background: #EDE8DC; }
+      .hub-item:active { box-shadow: 1px 1px 0 #2C2418; transform: translate(3px,3px); }
+      .hub-item.exit   { background: #EDE0D8; }
+      .hub-item-icon   { font-size: 24px; line-height: 1; }
+      .hub-item-label  {
+        font-family: 'Georgia', serif; font-size: 14px;
+        font-weight: bold; color: #2C2418;
+      }
+      .hub-item-sub {
+        font-family: system-ui, sans-serif; font-size: 10px;
+        color: #8A7A6A; letter-spacing: 1px; text-transform: uppercase;
+      }
+    </style>
+
+    <div id="creatorHub">
+      <div id="hub-box">
+
+        <!-- Header -->
+        <div id="hub-hdr">
+          <span class="hdr-title">Creator Hub</span>
+          <span id="hub-notif"></span>
+          <button id="hub-close" onclick="H.close()">✖ CLOSE</button>
+        </div>
+
+        <!-- Tab nav -->
+        <div id="hub-tabs">
+          <button class="htab-btn active" data-t="level"   onclick="H.tab('level')">🌪️ GAME MODE</button>
+          <button class="htab-btn"        data-t="creature" onclick="H.tab('creature')">🎨 CREATURE</button>
+          <button class="htab-btn"        data-t="gallery"  onclick="H.tab('gallery')">🏆 GALLERY</button>
+        </div>
+
+        <div class="htab-body">
+
+          <!-- ── LEVEL CREATOR TAB ─────────────────────────────────── -->
+          <div class="htp active" id="tp-level">
+            <div class="tp-left">
+              <div class="fld">
+                <label>LEVEL NAME</label>
+                <input id="lvl-name" type="text" placeholder="My Tornado Level" maxlength="28">
+              </div>
+              <div class="fld">
+                <label>SKY THEME</label>
+                <div id="sky-sel"></div>
+              </div>
+              <div class="fld">
+                <label>TORNADO SPEED &nbsp;<b id="spd-v" class="val-display">2</b></label>
+                <input class="csl" type="range" min="1" max="4" value="2" id="spd-sl"
+                       oninput="document.getElementById('spd-v').textContent=this.value;H.lvlPrev()">
+                <div class="sl-lbl"><span>Breeze</span><span>Normal</span><span>Fast</span><span>CHAOS</span></div>
+              </div>
+              <div class="fld">
+                <label>TORNADO SIZE &nbsp;<b id="sz-v" class="val-display">2</b></label>
+                <input class="csl" type="range" min="1" max="3" value="2" id="sz-sl"
+                       oninput="document.getElementById('sz-v').textContent=this.value;H.lvlPrev()">
+                <div class="sl-lbl"><span>Tiny</span><span>Normal</span><span>HUGE</span></div>
+              </div>
+              <div class="fld">
+                <label>SPAWN RATE &nbsp;<b id="spn-v" class="val-display">2</b></label>
+                <input class="csl" type="range" min="1" max="4" value="2" id="spn-sl"
+                       oninput="document.getElementById('spn-v').textContent=this.value;H.lvlPrev()">
+                <div class="sl-lbl"><span>Rare</span><span>Normal</span><span>Often</span><span>SWARM</span></div>
+              </div>
+              <div class="fld">
+                <label>LIVES &nbsp;<b id="liv-v" class="val-display">3</b></label>
+                <input class="csl" type="range" min="1" max="5" value="3" id="liv-sl"
+                       oninput="document.getElementById('liv-v').textContent=this.value;H.lvlPrev()">
+                <div class="sl-lbl"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+              </div>
+            </div>
+            <div class="tp-right" style="flex:1;align-items:center;justify-content:center;gap:12px">
+              <canvas id="lvl-prev" width="240" height="155"
+                      style="border:2px solid #2C2418;image-rendering:pixelated;border-radius:3px;box-shadow:3px 3px 0 #2C2418;"></canvas>
+              <div class="preview-lbl">PREVIEW</div>
+              <button class="cbtn primary" onclick="H.saveLevel()">💾 SAVE LEVEL</button>
+              <button class="cbtn"         onclick="H.copyLvlCode()">📋 COPY CODE</button>
+              <button class="cbtn green"   onclick="H.playNow()">▶ PLAY NOW</button>
+            </div>
+          </div>
+
+          <!-- ── CREATURE CREATOR TAB ──────────────────────────────── -->
+          <div class="htp" id="tp-creature">
+            <div class="tp-left">
+              <div class="fld">
+                <label>CREATURE NAME</label>
+                <input id="crt-name" type="text" placeholder="My Creature" maxlength="22">
+              </div>
+              <div class="fld">
+                <label>COLOUR PALETTE</label>
+                <div id="pal-grid"></div>
+              </div>
+              <div class="fld">
+                <label>TOOLS</label>
+                <div class="tool-row">
+                  <button class="tool-btn active" id="tool-paint" onclick="H.setTool('paint')" title="Paint">🖌️ PAINT</button>
+                  <button class="tool-btn"        id="tool-erase" onclick="H.setTool('erase')" title="Erase">🧹 ERASE</button>
+                  <button class="tool-btn"        id="tool-fill"  onclick="H.setTool('fill')"  title="Flood Fill">🪣 FILL</button>
+                </div>
+              </div>
+              <button class="cbtn danger" onclick="H.clearGrid()">🗑️ CLEAR ALL</button>
+            </div>
+            <div class="tp-center">
+              <canvas id="edit-cv" width="240" height="320"
+                      style="image-rendering:pixelated;cursor:crosshair;border:2px solid #2C2418;border-radius:3px;box-shadow:3px 3px 0 #2C2418;touch-action:none;display:block;"></canvas>
+              <div class="preview-lbl" style="margin-top:4px">12 × 16 GRID</div>
+            </div>
+            <div class="tp-right" style="align-items:center;gap:12px">
+              <canvas id="prev-cv" width="90" height="120"
+                      style="border:2px solid #2C2418;image-rendering:pixelated;border-radius:3px;box-shadow:3px 3px 0 #2C2418;display:block;"></canvas>
+              <div class="preview-lbl">PREVIEW (×5)</div>
+              <button class="cbtn primary" onclick="H.saveCrt()">💾 SAVE</button>
+              <button class="cbtn green"   onclick="H.saveAddGame()">🎮 ADD TO GAME</button>
+              <button class="cbtn"         onclick="H.copyCrtCode()">📋 COPY CODE</button>
+            </div>
+          </div>
+
+          <!-- ── GALLERY TAB ────────────────────────────────────────── -->
+          <div class="htp gallery-tab" id="tp-gallery">
+            <div class="gal-header">
+              <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+                <div class="gal-subtabs">
+                  <button class="gst active" data-gt="levels"   onclick="H.galTab('levels')">🌪️ GAME MODES</button>
+                  <button class="gst"        data-gt="creatures" onclick="H.galTab('creatures')">🎨 CREATURES</button>
+                </div>
+                <div style="color:#555;font-size:11px">👅 = LICK (TikTok likes, but better)</div>
+              </div>
+              <div class="import-row">
+                <input id="imp-code" type="text" placeholder="Paste a code from TikTok comments to import someone else's level or creature...">
+                <button class="cbtn inline" onclick="H.importCode()">📥 IMPORT</button>
+              </div>
+            </div>
+            <div id="gal-lvls" class="gal-grid"></div>
+            <div id="gal-crts" class="gal-grid" style="display:none"></div>
+          </div>
+
+        </div><!-- /.htab-body -->
+      </div><!-- /#hub-box -->
+    </div><!-- /#creatorHub -->
+
+    <script>
+    (function() {
+      'use strict';
+
+      // ── Constants ────────────────────────────────────────────────────────────
+      const GW = 12, GH = 16, CELL = 20;
+      const PAL = [
+        null,       // 0 transparent
+        '#080808',  // 1 black
+        '#F0F0F0',  // 2 white
+        '#CC2020',  // 3 red
+        '#22AA22',  // 4 green
+        '#2255CC',  // 5 blue
+        '#EEB020',  // 6 yellow
+        '#DD6620',  // 7 orange
+        '#BB22BB',  // 8 magenta
+        '#22BBCC',  // 9 cyan
+        '#7A3A18',  // 10 brown
+        '#F0A8A8',  // 11 pink
+        '#80C880',  // 12 sage
+        '#8888EE',  // 13 periwinkle
+        '#888888',  // 14 gray
+        '#F0CC90',  // 15 skin
+      ];
+      const PKEYS = ['.','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O'];
+      const SKIES = [
+        { name:'☀️ Day',    c:['#5BA8E8','#A8D8F8'] },
+        { name:'🌅 Sunset', c:['#8B1A00','#FF9040'] },
+        { name:'🌙 Night',  c:['#020210','#141450'] },
+        { name:'⛈️ Storm',  c:['#14141E','#2C2C3E'] },
+      ];
+
+      // ── State ────────────────────────────────────────────────────────────────
+      let grid = Array.from({length:GH}, () => new Array(GW).fill(0));
+      let selColor = 1, curTool = 'paint', painting = false, skyIdx = 0;
+
+      // ── Storage ──────────────────────────────────────────────────────────────
+      const sto = {
+        get(k,d){ try{ return JSON.parse(localStorage.getItem(k))||d; }catch{ return d; } },
+        set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} },
+      };
+      let levels    = sto.get('ps_lvls', []);
+      let creatures = sto.get('ps_crts', []);
+      let liked     = sto.get('ps_liked', {});
+
+      // ── Encode / Decode ──────────────────────────────────────────────────────
+      const enc = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+      const dec = s => { try{ return JSON.parse(decodeURIComponent(escape(atob(s)))); }catch{ return null; } };
+
+      // ── Pixel Grid ───────────────────────────────────────────────────────────
+      function clearGrid() {
+        grid = Array.from({length:GH}, () => new Array(GW).fill(0));
+        renderEditor(); renderPreview();
+      }
+
+      function floodFill(g, c, r, from, to) {
+        if (c<0||c>=GW||r<0||r>=GH||g[r][c]!==from||from===to) return;
+        g[r][c] = to;
+        floodFill(g,c+1,r,from,to); floodFill(g,c-1,r,from,to);
+        floodFill(g,c,r+1,from,to); floodFill(g,c,r-1,from,to);
+      }
+
+      function canvasPos(canvas, cx, cy) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (cx - rect.left) * (canvas.width  / rect.width);
+        const y = (cy - rect.top)  * (canvas.height / rect.height);
+        return { col: Math.max(0,Math.min(GW-1,Math.floor(x/CELL))),
+                 row: Math.max(0,Math.min(GH-1,Math.floor(y/CELL))) };
+      }
+
+      function applyTool(col, row) {
+        if (curTool === 'paint') grid[row][col] = selColor;
+        else if (curTool === 'erase') grid[row][col] = 0;
+        else if (curTool === 'fill') {
+          const from = grid[row][col];
+          if (from !== selColor) floodFill(grid, col, row, from, selColor);
+        }
+        renderEditor(); renderPreview();
+      }
+
+      function renderEditor() {
+        const cv = document.getElementById('edit-cv');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        for (let r = 0; r < GH; r++) {
+          for (let c2 = 0; c2 < GW; c2++) {
+            const x = c2*CELL, y = r*CELL;
+            ctx.fillStyle = (r+c2)%2===0 ? '#3A3A3A' : '#2A2A2A';
+            ctx.fillRect(x, y, CELL, CELL);
+            const col = PAL[grid[r][c2]];
+            if (col) { ctx.fillStyle = col; ctx.fillRect(x, y, CELL, CELL); }
+            ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+            ctx.lineWidth = 0.5;
+            ctx.strokeRect(x+.5, y+.5, CELL-1, CELL-1);
+          }
+        }
+        // 4-pixel group guides
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 1;
+        for (let r = 0; r <= GH; r += 4) { ctx.beginPath(); ctx.moveTo(0, r*CELL); ctx.lineTo(GW*CELL, r*CELL); ctx.stroke(); }
+        for (let c2 = 0; c2 <= GW; c2 += 4) { ctx.beginPath(); ctx.moveTo(c2*CELL, 0); ctx.lineTo(c2*CELL, GH*CELL); ctx.stroke(); }
+      }
+
+      function renderPreview() {
+        const cv = document.getElementById('prev-cv');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        // Checker background
+        for (let y = 0; y < cv.height; y+=8)
+          for (let x = 0; x < cv.width; x+=8) {
+            ctx.fillStyle = (Math.floor(x/8)+Math.floor(y/8))%2===0 ? '#333' : '#444';
+            ctx.fillRect(x, y, 8, 8);
+          }
+        const sc = 5;
+        const ox = Math.floor((cv.width  - GW*sc)/2);
+        const oy = Math.floor((cv.height - GH*sc)/2);
+        for (let r = 0; r < GH; r++)
+          for (let c2 = 0; c2 < GW; c2++) {
+            const col = PAL[grid[r][c2]];
+            if (col) { ctx.fillStyle = col; ctx.fillRect(ox+c2*sc, oy+r*sc, sc, sc); }
+          }
+      }
+
+      function gridToSprite() {
+        const pal = { '.': null };
+        const sp = grid.map(row =>
+          row.map((idx,c2) => {
+            const k = PKEYS[idx];
+            if (idx > 0) pal[k] = PAL[idx];
+            return k;
+          }).join('')
+        );
+        return { pal, sp };
+      }
+
+      function spriteToGrid(pal, sp) {
+        // Build color → PAL index map
+        const c2i = {};
+        Object.entries(pal).forEach(([k,v]) => {
+          if (!v) return;
+          const i = PAL.findIndex(p => p === v);
+          c2i[k] = i >= 0 ? i : 1;
+        });
+        const g = Array.from({length:GH}, () => new Array(GW).fill(0));
+        sp.slice(0,GH).forEach((rowStr,r) => {
+          [...rowStr].slice(0,GW).forEach((ch,c2) => {
+            g[r][c2] = ch==='.' ? 0 : (c2i[ch] !== undefined ? c2i[ch] : 1);
+          });
+        });
+        return g;
+      }
+
+      // ── Level Preview Canvas ─────────────────────────────────────────────────
+      function lvlPrev() {
+        const cv = document.getElementById('lvl-prev');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        const W = cv.width, H = cv.height;
+        const sky = SKIES[skyIdx] || SKIES[0];
+        const gr = ctx.createLinearGradient(0,0,0,H*.75);
+        gr.addColorStop(0, sky.c[0]); gr.addColorStop(1, sky.c[1]);
+        ctx.fillStyle = gr; ctx.fillRect(0,0,W,H);
+        // Grass
+        ctx.fillStyle = '#4A9E38'; ctx.fillRect(0,H*.75,W,H);
+        ctx.fillStyle = '#6DBF5A'; ctx.fillRect(0,H*.75+4,W,H);
+        // Tornadoes
+        const spd  = parseInt(document.getElementById('spd-sl')?.value)||2;
+        const sz   = parseInt(document.getElementById('sz-sl')?.value)||2;
+        const spn  = parseInt(document.getElementById('spn-sl')?.value)||2;
+        const lives= parseInt(document.getElementById('liv-sl')?.value)||3;
+        for (let i=0; i<spn; i++) {
+          const tx = 28 + i*(W/spn);
+          const tw = (7+sz*5), th=(18+sz*14);
+          for (let l=0; l<6; l++) {
+            const p=l/5, lw=Math.max(2,tw*(1-p*.88));
+            const g2=Math.round(200-p*130);
+            ctx.fillStyle=`rgba(${g2},${g2},${g2+15},0.6)`;
+            ctx.beginPath(); ctx.ellipse(tx+Math.sin(l*.8)*6*p, H*.3+l*(th/6), lw/2,(th/6)*.75,0,0,Math.PI*2); ctx.fill();
+          }
+        }
+        // Hearts
+        ctx.fillStyle = '#FF4444';
+        for (let i=0; i<lives; i++) {
+          const hx=8+i*16, hy=8;
+          ctx.beginPath();
+          ctx.arc(hx+3,hy+3,3,Math.PI,0); ctx.arc(hx+9,hy+3,3,Math.PI,0);
+          ctx.lineTo(hx+12,hy+9); ctx.lineTo(hx+6,hy+14); ctx.lineTo(hx,hy+9);
+          ctx.closePath(); ctx.fill();
+        }
+        // Speed label
+        const labels = ['','BREEZE','NORMAL','FAST','CHAOS ⚡'];
+        ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,H-22,W,22);
+        ctx.fillStyle='#FFE030'; ctx.font='bold 11px "Courier New",monospace';
+        ctx.textAlign='center';
+        ctx.fillText(`${labels[spd]} · SIZE ${sz} · SPAWN ${spn}`, W/2, H-7);
+      }
+
+      // ── Gallery Renderers ────────────────────────────────────────────────────
+      function escH(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+      function renderLevels() {
+        const el = document.getElementById('gal-lvls');
+        if (!el) return;
+        if (!levels.length) {
+          el.innerHTML = '<div class="empty-msg">No levels yet!<br>Create one in the 🌪️ GAME MODE tab,<br>or paste a code above to import.</div>';
+          return;
+        }
+        const sorted = [...levels].sort((a,b)=>(b.licks||0)-(a.licks||0));
+        el.innerHTML = sorted.map((lvl,i) => {
+          const lked  = liked[`lv:${lvl.id}`];
+          const sky   = SKIES[lvl.skyColor]||SKIES[0];
+          const topB  = i===0&&(lvl.licks||0)>0 ? `<div class="top-badge">👑 TOP LICKED</div>` : '';
+          return `<div class="g-card${i===0&&(lvl.licks||0)>0?' top-card':''}">
+            ${topB}
+            <div class="g-sky-strip" style="background:linear-gradient(135deg,${sky.c[0]},${sky.c[1]})">
+              <span class="g-sky-icon">${sky.name}</span>
+            </div>
+            <div class="g-title">${escH(lvl.name)}</div>
+            <div class="g-meta">⚡${lvl.tornadoSpeed} 🌀${lvl.tornadoSize} 📍${lvl.spawnRate} ❤️${lvl.lives}</div>
+            <div class="g-actions">
+              <button class="lick-btn${lked?' licked':''}" onclick="H.lick('lv','${lvl.id}')">👅 ${lvl.licks||0}</button>
+              <button class="g-btn play" onclick="H.playLvl('${lvl.id}')">▶</button>
+              <button class="g-btn" onclick="H.copyId('lv','${lvl.id}')">📋</button>
+              <button class="g-btn" onclick="H.editLvl('${lvl.id}')">✏️</button>
+              <button class="g-btn danger" onclick="H.del('lv','${lvl.id}')">🗑️</button>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      function renderCreatures() {
+        const el = document.getElementById('gal-crts');
+        if (!el) return;
+        if (!creatures.length) {
+          el.innerHTML = '<div class="empty-msg">No creatures yet!<br>Draw one in the 🎨 CREATURE tab,<br>or paste a code above to import.</div>';
+          return;
+        }
+        const sorted = [...creatures].sort((a,b)=>(b.licks||0)-(a.licks||0));
+        el.innerHTML = sorted.map((cr,i) => {
+          const lked = liked[`cr:${cr.id}`];
+          const topB = i===0&&(cr.licks||0)>0 ? `<div class="top-badge">👑 TOP LICKED</div>` : '';
+          return `<div class="g-card${i===0&&(cr.licks||0)>0?' top-card':''}">
+            ${topB}
+            <div class="g-crt-prev" id="cprev-${cr.id}"></div>
+            <div class="g-title">${escH(cr.name)}</div>
+            <div class="g-actions">
+              <button class="lick-btn${lked?' licked':''}" onclick="H.lick('cr','${cr.id}')">👅 ${cr.licks||0}</button>
+              <button class="g-btn play" onclick="H.addGame('${cr.id}')">🎮</button>
+              <button class="g-btn" onclick="H.copyId('cr','${cr.id}')">📋</button>
+              <button class="g-btn" onclick="H.editCrt('${cr.id}')">✏️</button>
+              <button class="g-btn danger" onclick="H.del('cr','${cr.id}')">🗑️</button>
+            </div>
+          </div>`;
+        }).join('');
+        setTimeout(() => sorted.forEach(cr => drawCrtPrev(cr, `cprev-${cr.id}`)), 10);
+      }
+
+      function drawCrtPrev(cr, divId) {
+        const div = document.getElementById(divId);
+        if (!div) return;
+        div.innerHTML = '';
+        const sc = 3, cw = cr.w*sc, ch = cr.h*sc;
+        const cv2 = Object.assign(document.createElement('canvas'), { width:cw, height:ch });
+        cv2.style.cssText = 'image-rendering:pixelated;border:1px solid #333;display:block;margin:0 auto;';
+        div.appendChild(cv2);
+        const ctx = cv2.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        cr.sp.forEach((row,r) =>
+          [...row].forEach((ch2,c2) => {
+            const col = cr.pal[ch2];
+            if (col) { ctx.fillStyle=col; ctx.fillRect(c2*sc,r*sc,sc,sc); }
+          })
+        );
+      }
+
+      // ── UI Helpers ───────────────────────────────────────────────────────────
+      function notif(msg) {
+        const el = document.getElementById('hub-notif');
+        if (!el) return;
+        el.textContent = msg; el.style.opacity='1'; el.style.transform='translateY(0)';
+        clearTimeout(window._hNotifT);
+        window._hNotifT = setTimeout(() => { el.style.opacity='0'; el.style.transform='translateY(-6px)'; }, 2600);
+      }
+
+      function copyText(text) {
+        navigator.clipboard.writeText(text)
+          .then(() => notif('Copied! 📋'))
+          .catch(() => {
+            const ta = Object.assign(document.createElement('textarea'), {value:text});
+            document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+            document.body.removeChild(ta); notif('Copied! 📋');
+          });
+      }
+
+      function buildPalette() {
+        const el = document.getElementById('pal-grid');
+        if (!el) return;
+        el.innerHTML = PAL.map((col,i) => {
+          const style = col ? `background:${col}` : 'background-image:repeating-conic-gradient(#555 0%25%,#2A2A2A 0%50%);background-size:10px 10px';
+          return `<button class="p-swatch${i===selColor?' selected':''}${!col?' transparent':''}"
+                          style="${style}" onclick="H.selCol(${i})" title="${col||'Transparent'}"></button>`;
+        }).join('');
+      }
+
+      function buildSkySelector() {
+        const el = document.getElementById('sky-sel');
+        if (!el) return;
+        el.innerHTML = SKIES.map((sky,i) =>
+          `<button class="sky-opt${i===skyIdx?' selected':''}"
+                   style="background:linear-gradient(135deg,${sky.c[0]},${sky.c[1]})"
+                   onclick="H.selSky(${i})">${sky.name}</button>`
+        ).join('');
+      }
+
+      function syncLevelFromActive() {
+        const lvl = window.pixelSceneAPI?.activeLevel;
+        if (!lvl) return;
+        const set = (id,v) => { const e=document.getElementById(id); if(e) e.value=v; };
+        const txt = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+        set('spd-sl', lvl.tornadoSpeed||2); txt('spd-v', lvl.tornadoSpeed||2);
+        set('sz-sl',  lvl.tornadoSize||2);  txt('sz-v',  lvl.tornadoSize||2);
+        set('spn-sl', lvl.spawnRate||2);     txt('spn-v', lvl.spawnRate||2);
+        set('liv-sl', lvl.lives||3);         txt('liv-v', lvl.lives||3);
+        skyIdx = lvl.skyColor||0;
+        buildSkySelector();
+      }
+
+      // ── Editor Canvas Init ───────────────────────────────────────────────────
+      function initEditorCanvas() {
+        const cv2 = document.getElementById('edit-cv');
+        if (!cv2 || cv2._inited) return;
+        cv2._inited = true;
+        function down(cx,cy) { painting=true; const p=canvasPos(cv2,cx,cy); applyTool(p.col,p.row); }
+        function move(cx,cy) { if (!painting) return; const p=canvasPos(cv2,cx,cy); applyTool(p.col,p.row); }
+        cv2.addEventListener('mousedown', e => down(e.clientX,e.clientY));
+        cv2.addEventListener('mousemove', e => move(e.clientX,e.clientY));
+        cv2.addEventListener('mouseup',   () => { painting=false; });
+        cv2.addEventListener('mouseleave',() => { painting=false; });
+        cv2.addEventListener('touchstart', e => { e.preventDefault(); down(e.touches[0].clientX,e.touches[0].clientY); }, {passive:false});
+        cv2.addEventListener('touchmove',  e => { e.preventDefault(); move(e.touches[0].clientX,e.touches[0].clientY); }, {passive:false});
+        cv2.addEventListener('touchend',   () => { painting=false; });
+        renderEditor(); renderPreview();
+      }
+
+      // ── Public API (window.H) ────────────────────────────────────────────────
+      window.H = {
+
+        open(defaultTab) {
+          document.getElementById('creatorHub').style.display = 'flex';
+          buildPalette(); buildSkySelector(); syncLevelFromActive();
+          renderLevels(); renderCreatures();
+          if (defaultTab) this.tab(defaultTab);
+          setTimeout(() => { initEditorCanvas(); lvlPrev(); }, 60);
+        },
+
+        close() { document.getElementById('creatorHub').style.display = 'none'; },
+
+        tab(t) {
+          document.querySelectorAll('.htab-btn').forEach(b => b.classList.toggle('active', b.dataset.t===t));
+          document.querySelectorAll('.htp').forEach(p => p.classList.toggle('active', p.id===`tp-${t}`));
+          if (t==='creature') setTimeout(() => { initEditorCanvas(); renderEditor(); renderPreview(); }, 30);
+          if (t==='level')    setTimeout(lvlPrev, 30);
+          if (t==='gallery')  { renderLevels(); renderCreatures(); }
+        },
+
+        galTab(gt) {
+          document.querySelectorAll('.gst').forEach(b => b.classList.toggle('active', b.dataset.gt===gt));
+          document.getElementById('gal-lvls').style.display = gt==='levels'   ? 'flex' : 'none';
+          document.getElementById('gal-crts').style.display = gt==='creatures' ? 'flex' : 'none';
+        },
+
+        selCol(i) {
+          selColor = i;
+          document.querySelectorAll('.p-swatch').forEach((el,j) => el.classList.toggle('selected', j===i));
+        },
+
+        setTool(t) {
+          curTool = t;
+          ['paint','erase','fill'].forEach(n => {
+            document.getElementById(`tool-${n}`)?.classList.toggle('active', n===t);
+          });
+        },
+
+        selSky(i) {
+          skyIdx = i;
+          document.querySelectorAll('.sky-opt').forEach((el,j) => el.classList.toggle('selected', j===i));
+          lvlPrev();
+        },
+
+        lvlPrev: lvlPrev,
+        clearGrid,
+
+        // ── LEVEL ACTIONS ──
+        getLvlFromForm() {
+          return {
+            id: Math.random().toString(36).slice(2,9),
+            name: document.getElementById('lvl-name')?.value.trim() || 'My Level',
+            tornadoSpeed: parseInt(document.getElementById('spd-sl')?.value)||2,
+            tornadoSize:  parseInt(document.getElementById('sz-sl')?.value)||2,
+            spawnRate:    parseInt(document.getElementById('spn-sl')?.value)||2,
+            lives:        parseInt(document.getElementById('liv-sl')?.value)||3,
+            skyColor: skyIdx,
+            licks: 0, createdAt: Date.now(),
+          };
+        },
+
+        saveLevel() {
+          const lvl = this.getLvlFromForm();
+          levels = [lvl, ...levels.slice(0,19)];
+          sto.set('ps_lvls', levels);
+          if (window.pixelSceneAPI) window.pixelSceneAPI.setLevel(lvl);
+          notif('Level saved! 🌪️');
+          renderLevels();
+        },
+
+        copyLvlCode() { copyText(enc(this.getLvlFromForm())); },
+
+        playNow() {
+          this.saveLevel();
+          this.close();
+          document.getElementById('gameBtn')?.click();
+        },
+
+        editLvl(id) {
+          const lvl = levels.find(l=>l.id===id);
+          if (!lvl) return;
+          const setV = (slId, vId, v) => {
+            const s=document.getElementById(slId), t=document.getElementById(vId);
+            if(s) s.value=v; if(t) t.textContent=v;
+          };
+          const n=document.getElementById('lvl-name'); if(n) n.value=lvl.name;
+          setV('spd-sl','spd-v',lvl.tornadoSpeed);
+          setV('sz-sl', 'sz-v', lvl.tornadoSize);
+          setV('spn-sl','spn-v',lvl.spawnRate);
+          setV('liv-sl','liv-v',lvl.lives);
+          skyIdx = lvl.skyColor||0;
+          buildSkySelector(); this.tab('level'); setTimeout(lvlPrev, 30);
+        },
+
+        playLvl(id) {
+          const lvl = levels.find(l=>l.id===id);
+          if (!lvl) return;
+          if (window.pixelSceneAPI) window.pixelSceneAPI.setLevel(lvl);
+          this.close();
+          document.getElementById('gameBtn')?.click();
+        },
+
+        // ── CREATURE ACTIONS ──
+        saveCrt() {
+          const { pal, sp } = gridToSprite();
+          const cr = {
+            id: Math.random().toString(36).slice(2,9),
+            name: document.getElementById('crt-name')?.value.trim()||'My Creature',
+            pal, sp, w:GW, h:GH,
+            licks:0, createdAt:Date.now(),
+          };
+          creatures = [cr, ...creatures.slice(0,19)];
+          sto.set('ps_crts', creatures);
+          notif('Creature saved! 🎨');
+          renderCreatures();
+          return cr;
+        },
+
+        saveAddGame() {
+          const cr = this.saveCrt();
+          if (window.pixelSceneAPI) {
+            window.pixelSceneAPI.addChar({ name:cr.name, pal:cr.pal, spA:cr.sp, spB:cr.sp, w:cr.w, h:cr.h, sc:5 });
+            notif(`${cr.name} added to game! 🎮`);
+          }
+        },
+
+        copyCrtCode() {
+          const { pal, sp } = gridToSprite();
+          const name = document.getElementById('crt-name')?.value.trim()||'My Creature';
+          copyText(enc({ name, pal, sp, w:GW, h:GH }));
+        },
+
+        addGame(id) {
+          const cr = creatures.find(c=>c.id===id);
+          if (!cr || !window.pixelSceneAPI) return;
+          window.pixelSceneAPI.addChar({ name:cr.name, pal:cr.pal, spA:cr.sp, spB:cr.sp, w:cr.w, h:cr.h, sc:5 });
+          notif(`${cr.name} added to game! 🎮`);
+        },
+
+        editCrt(id) {
+          const cr = creatures.find(c=>c.id===id);
+          if (!cr) return;
+          const n=document.getElementById('crt-name'); if(n) n.value=cr.name;
+          grid = spriteToGrid(cr.pal, cr.sp);
+          this.tab('creature');
+          setTimeout(() => { renderEditor(); renderPreview(); }, 40);
+        },
+
+        // ── GALLERY ACTIONS ──
+        lick(prefix, id) {
+          const key = `${prefix}:${id}`;
+          if (liked[key]) { notif('Already licked! 👅'); return; }
+          liked[key]=true; sto.set('ps_liked', liked);
+          const arr = prefix==='lv' ? levels : creatures;
+          const item = arr.find(x=>x.id===id);
+          if (item) item.licks=(item.licks||0)+1;
+          sto.set(prefix==='lv'?'ps_lvls':'ps_crts', arr);
+          renderLevels(); renderCreatures();
+          notif('Licked! 👅');
+        },
+
+        copyId(prefix, id) {
+          const arr = prefix==='lv' ? levels : creatures;
+          const item = arr.find(x=>x.id===id);
+          if (item) copyText(enc(item));
+        },
+
+        del(prefix, id) {
+          if (!confirm('Delete this?')) return;
+          if (prefix==='lv') { levels = levels.filter(l=>l.id!==id); sto.set('ps_lvls',levels); renderLevels(); }
+          else { creatures = creatures.filter(c=>c.id!==id); sto.set('ps_crts',creatures); renderCreatures(); }
+          notif('Deleted!');
+        },
+
+        importCode() {
+          const input = document.getElementById('imp-code');
+          if (!input) return;
+          const code = input.value.trim();
+          if (!code) { notif('Paste a code first!'); return; }
+          const obj = dec(code);
+          if (!obj) { notif('Invalid code ❌'); return; }
+          if (obj.tornadoSpeed !== undefined) {
+            levels = [{ ...obj, id:Math.random().toString(36).slice(2,9), licks:0, createdAt:Date.now() }, ...levels.slice(0,19)];
+            sto.set('ps_lvls', levels);
+            renderLevels();
+            this.galTab('levels');
+            input.value=''; notif('Level imported! 🌪️');
+          } else if (obj.sp !== undefined) {
+            creatures = [{ ...obj, id:Math.random().toString(36).slice(2,9), licks:0, createdAt:Date.now() }, ...creatures.slice(0,19)];
+            sto.set('ps_crts', creatures);
+            renderCreatures();
+            this.galTab('creatures');
+            input.value=''; notif('Creature imported! 🎨');
+          } else {
+            notif('Unknown code type ❓');
+          }
+        },
+      };
+
+      // ── Scene Hub — branching slide-out menu ─────────────────────────────────
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="scene-hub">
+          <div class="hub-arm arm-left">
+            <button class="hub-item" id="play-arm" onclick="sceneHubPlay()">
+              <span class="hub-item-icon" id="play-arm-icon">🌪️</span>
+              <span class="hub-item-label" id="play-arm-label">Play Game</span>
+              <span class="hub-item-sub">tornado dodge</span>
+            </button>
+          </div>
+          <button id="hub-toggle" onclick="sceneHubToggle()" title="Menu">🪿</button>
+          <div class="hub-arm arm-right">
+            <button class="hub-item" onclick="sceneHubCreate()">
+              <span class="hub-item-icon">✏️</span>
+              <span class="hub-item-label">Create</span>
+              <span class="hub-item-sub">levels &amp; creatures</span>
+            </button>
+          </div>
+        </div>
+      `);
+
+      let _hubOpen = false;
+
+      window.sceneHubToggle = function() {
+        _hubOpen = !_hubOpen;
+        document.getElementById('scene-hub').classList.toggle('open', _hubOpen);
+        document.getElementById('hub-toggle').textContent = _hubOpen ? '✕' : '🪿';
+      };
+
+      window.sceneHubPlay = function() {
+        if (window.pixelSceneAPI) window.pixelSceneAPI.toggleGame();
+        setTimeout(_updatePlayArm, 60);
+      };
+
+      window.sceneHubCreate = function() {
+        H.open();
+      };
+
+      function _updatePlayArm() {
+        const playing = window.pixelSceneAPI?.getGameMode() !== 'off';
+        const btn  = document.getElementById('play-arm');
+        const lbl  = document.getElementById('play-arm-label');
+        const icon = document.getElementById('play-arm-icon');
+        if (!btn) return;
+        btn.classList.toggle('exit', playing);
+        if (lbl)  lbl.textContent  = playing ? 'Exit Game'  : 'Play Game';
+        if (icon) icon.textContent = playing ? '✖' : '🌪️';
+      }
+
+      setInterval(_updatePlayArm, 600);
+
+    })();
+    </script>
+  </body>
+</html>
